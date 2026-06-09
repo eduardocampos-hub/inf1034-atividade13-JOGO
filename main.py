@@ -17,9 +17,21 @@ background = pygame.transform.scale(pygame.image.load("C:/Users/nuvem/Desktop/in
 class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        self.image = pygame.transform.rotozoom(pygame.image.load('C:/Users/nuvem/Desktop/inf1034-atividade13-JOGO/Hero_Walk_01.png').convert_alpha(), 0, PLAYER_SIZE)
+        self.image = pygame.transform.rotozoom(pygame.image.load('C:/Users/nuvem/Desktop/inf1034-atividade13-JOGO/hero.png').convert_alpha(), 0, PLAYER_SIZE)
+        self.base_player_image = self.image
         self.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
+        self.hitbox_rect = self.base_player_image.get_rect(center = self.pos)
+        self.rect = self.hitbox_rect.copy()
+        
         self.speed = PLAYER_SPEED
+
+    def player_rotation(self):
+        self.mouse_coords = pygame.mouse.get_pos()
+        self.x_change_mouse_player = (self.mouse_coords[0] - self.hitbox_rect.centerx)
+        self.y_change_mouse_player = (self.mouse_coords[1] - self.hitbox_rect.centery)
+        self.angle = math.degrees(math.atan2(self.y_change_mouse_player, self.x_change_mouse_player))
+        self.image = pygame.transform.rotate(self.base_player_image, -self.angle)
+        self.rect = self.image.get_rect(center = self.hitbox_rect.center)
     def user_input(self):
         self.velocity_x = 0
         self.velocity_y = 0
@@ -40,9 +52,12 @@ class Player(pygame.sprite.Sprite):
             self.velocity_y /= math.sqrt(2)
     def move(self):
         self.pos += pygame.math.Vector2(self.velocity_x, self.velocity_y)
+        self.hitbox_rect.center = self.pos
+        self.rect.center = self.hitbox_rect.center
     def update(self):
         self.user_input()
         self.move()
+        self.player_rotation()
 
 
 player = Player()
@@ -55,7 +70,7 @@ while True:
             exit()
 
     screen.blit(background, (0,0))
-    screen.blit(player.image, player.pos)
+    screen.blit(player.image, player.rect)
     player.update()
     pygame.display.update()
     clock.tick(FPS)
