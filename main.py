@@ -12,7 +12,7 @@ clock = pygame.time.Clock()
 
 
 # imagens
-background = pygame.transform.scale(pygame.image.load("C:/Users/nuvem/Desktop/inf1034-atividade13-JOGO/background.png").convert(), (LARGURA, ALTURA))
+background = pygame.image.load("C:/Users/nuvem/Desktop/inf1034-atividade13-JOGO/ground.png").convert()
 
 class Player(pygame.sprite.Sprite):
     def __init__(self):
@@ -29,8 +29,8 @@ class Player(pygame.sprite.Sprite):
 
     def player_rotation(self):
         self.mouse_coords = pygame.mouse.get_pos()
-        self.x_change_mouse_player = (self.mouse_coords[0] - self.hitbox_rect.centerx)
-        self.y_change_mouse_player = (self.mouse_coords[1] - self.hitbox_rect.centery)
+        self.x_change_mouse_player = (self.mouse_coords[0] - LARGURA // 2)
+        self.y_change_mouse_player = (self.mouse_coords[1] - ALTURA // 2)
         self.angle = math.degrees(math.atan2(self.y_change_mouse_player, self.x_change_mouse_player))
         self.image = pygame.transform.rotate(self.base_player_image, -self.angle)
         self.rect = self.image.get_rect(center = self.hitbox_rect.center)
@@ -110,10 +110,69 @@ class Bullet(pygame.sprite.Sprite):
     def update(self):
         self.bullet_movement()
 
-player = Player()
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, position):
+        super().__init__(enemy_group, all_sprites_group)
+        self.image = pygame.image.load('C:/Users/nuvem/Desktop/inf1034-atividade13-JOGO/0.png').convert_alpha()
+        self.image = pygame.transform.rotozoom(self.image, 0, 2)
+
+        self.rect = self.image.get_rect()
+        self.rect.center = position
+
+        self.direction = pygame.math.Vector2()
+        self.velocity = pygame.math.Vector2()
+        self.speed = ENEMY_SPEED
+
+        self.position = pygame.math.Vector2(position) 
+
+    def hunt_player(self):
+        player_vector = pygame.math.Vector2(player.hitbox_rect.center)
+        enemy_vector = pygame.math.Vector2(self.rect.center)
+        distance = self.get_vector_distance(player_vector,enemy_vector)
+
+        if distance > 0:
+            self.direction = (player_vector - enemy_vector).normalize()
+        else:
+            self.direction = pygame.math.Vector2()
+
+        self.velocity = self.direction * self.speed
+        self.position += self.velocity
+
+        self.rect.centerx = self.position.x
+        self.rect.centery = self.position.y
+
+    def get_vector_distance(self,vector_1,vector_2):
+        return (vector_1 - vector_2).magnitude()
+
+    def update(self):
+        self.hunt_player()
+
+class Camera(pygame.sprite.Group):
+    def __init__(self):
+        super().__init__()
+        self.offset = pygame.math.Vector2()
+        self.floor_rect = background.get_rect(topleft = (0,0))
+
+    def custom_draw(self):
+        self.offset.x = player.rect.centerx - LARGURA // 2
+        self.offset.y = player.rect.centery - ALTURA // 2
+
+        #draw the floor
+        floor_offset_pos = self.floor_rect.topleft - self.offset
+        screen.blit(background, floor_offset_pos)
+
+        for sprite in all_sprites_group:
+            offset_pos = sprite.rect.topleft - self.offset
+            screen.blit(sprite.image, offset_pos)
 
 all_sprites_group = pygame.sprite.Group()
 bullet_group = pygame.sprite.Group()
+enemy_group = pygame.sprite.Group()
+
+player = Player()
+camera = Camera()
+necromancer = Enemy((400,400))
 
 all_sprites_group.add(player)
 
@@ -124,9 +183,7 @@ while True:
             pygame.quit()
             exit()
 
-    screen.blit(background, (0,0))
-
-    all_sprites_group.draw(screen)
+    camera.custom_draw()
     all_sprites_group.update()
     # pygame.draw.rect(screen,'red', player.hitbox_rect, width=2)
     # pygame.draw.rect(screen,'yellow', player.rect, width=2)
