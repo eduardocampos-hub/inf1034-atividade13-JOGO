@@ -1,18 +1,62 @@
 import pygame
 from sys import exit
 import math
+import os
+import pytmx
 from settings import *
 
 pygame.init()
 
-# criando a janela
+# PRIMEIRO cria a janela
 screen = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption('Jogo Bicalho')
 clock = pygame.time.Clock()
 
+# DEPOIS carrega o mapa
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+mapa_tmx = pytmx.util_pygame.load_pygame(os.path.join(BASE_DIR, "mapa 1.tmx"))
+
 
 # imagens
-background = pygame.image.load("ground.png").convert()
+
+
+TILE_W = mapa_tmx.tilewidth  * TILE_SCALE   # 48
+TILE_H = mapa_tmx.tileheight * TILE_SCALE   # 48
+MAP_W  = mapa_tmx.width  * TILE_W           # 1440
+MAP_H  = mapa_tmx.height * TILE_H           # 1440
+
+# GIDs que são sólidos (paredes, bordas, chão de parede)
+# Baseado no seu mapa: bordas externas e paredes internas
+SOLID_GIDS = {13, 14, 15, 16, 21, 25, 28, 32, 34, 37, 38, 39, 40, 45}
+
+def gerar_hitboxes(mapa):
+    hitboxes = []
+    camada = mapa.get_layer_by_name("Camada de Blocos 1")
+    for x, y, gid in camada:
+        if gid in SOLID_GIDS:
+            hitboxes.append(pygame.Rect(
+                x * TILE_W,
+                y * TILE_H,
+                TILE_W,
+                TILE_H
+            ))
+    return hitboxes
+
+def desenhar_mapa(surface, mapa, offset):
+    camada = mapa.get_layer_by_name("Camada de Blocos 1")
+    for x, y, gid in camada:
+        if gid == 0:
+            continue
+        tile_img = mapa.get_tile_image_by_gid(gid)
+        if tile_img:
+            tile_scaled = pygame.transform.scale(tile_img, (TILE_W, TILE_H))
+            surface.blit(tile_scaled, (x * TILE_W - offset.x, y * TILE_H - offset.y))
+
+hitboxes = gerar_hitboxes(mapa_tmx)
+
+def hitboxes_proximas(rect, margem=64):
+    area = rect.inflate(margem, margem)
+    return [b for b in hitboxes if area.colliderect(b)]
 
 class Player(pygame.sprite.Sprite):
     def __init__(self):
@@ -68,8 +112,28 @@ class Player(pygame.sprite.Sprite):
             all_sprites_group.add(self.bullet)
         
     def move(self):
-        self.pos += pygame.math.Vector2(self.velocity_x, self.velocity_y)
-        self.hitbox_rect.center = self.pos
+        # Move em X e checa colisão
+        self.pos.x += self.velocity_x
+        self.hitbox_rect.centerx = int(self.pos.x)
+        for box in hitboxes_proximas(self.hitbox_rect):
+            if self.hitbox_rect.colliderect(box):
+                if self.velocity_x > 0:
+                    self.hitbox_rect.right = box.left
+                elif self.velocity_x < 0:
+                    self.hitbox_rect.left = box.right
+                self.pos.x = self.hitbox_rect.centerx
+
+        # Move em Y e checa colisão
+        self.pos.y += self.velocity_y
+        self.hitbox_rect.centery = int(self.pos.y)
+        for box in hitboxes_proximas(self.hitbox_rect):
+            if self.hitbox_rect.colliderect(box):
+                if self.velocity_y > 0:
+                    self.hitbox_rect.bottom = box.top
+                elif self.velocity_y < 0:
+                    self.hitbox_rect.top = box.bottom
+                self.pos.y = self.hitbox_rect.centery
+
         self.rect.center = self.hitbox_rect.center
     def update(self):
         self.user_input()
@@ -152,16 +216,15 @@ class Camera(pygame.sprite.Group):
     def __init__(self):
         super().__init__()
         self.offset = pygame.math.Vector2()
-        self.floor_rect = background.get_rect(topleft = (0,0))
 
     def custom_draw(self):
         self.offset.x = player.rect.centerx - LARGURA // 2
         self.offset.y = player.rect.centery - ALTURA // 2
 
-        #draw the floor
-        floor_offset_pos = self.floor_rect.topleft - self.offset
-        screen.blit(background, floor_offset_pos)
+        # Desenha o mapa de tiles
+        desenhar_mapa(screen, mapa_tmx, self.offset)
 
+        # Desenha todos os sprites com offset da câmera
         for sprite in all_sprites_group:
             offset_pos = sprite.rect.topleft - self.offset
             screen.blit(sprite.image, offset_pos)
@@ -184,6 +247,9 @@ while True:
             exit()
 
     camera.custom_draw()
+    for box in hitboxes:
+        pos = (box.x - camera.offset.x, box.y - camera.offset.y, box.width, box.height)
+        pygame.draw.rect(screen, (255, 0, 0), pos, 1)
     all_sprites_group.update()
     # pygame.draw.rect(screen,'red', player.hitbox_rect, width=2)
     # pygame.draw.rect(screen,'yellow', player.rect, width=2)
