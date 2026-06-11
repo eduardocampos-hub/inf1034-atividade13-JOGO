@@ -16,7 +16,7 @@ Toda rodada de inimigos limpa: VIDA CHEIA + uma HABILIDADE nova.
 
 Controles:
   Setas / WASD  mover
-  ESPAÇO        ataque corpo a corpo
+  ESPAÇO        atirar
   E             abrir porta (perto dela)
   C / Shift     Investida    ·    Z  Fúria de Fogo    ·    X  Raio Celestial
   R             reiniciar (após morrer ou vencer)
@@ -176,8 +176,6 @@ class Jogador:
         self.cd_raio = 0
         self.cd_dash = 0
         self.cd_furia = 0
-        self.slash_t = 0
-        self.slash_rect = None
         self.habilidades = set()    # 'investida', 'furia', 'raio'
         self.chaves = set()
 
@@ -321,16 +319,13 @@ class Jogo:
                 return
 
     def atacar(self):
+        """ataque básico: um tiro na direção em que o jogador está olhando"""
         j = self.jogador
         if j.cd_ataque > 0:
             return
         j.cd_ataque = 22
-        alvo = j.rect().move(int(j.dir[0] * 22), int(j.dir[1] * 22)).inflate(14, 14)
-        j.slash_t = 7
-        j.slash_rect = alvo.copy()
-        for ini in list(self.andar().inimigos):
-            if alvo.colliderect(ini.rect()):
-                self.dano_inimigo(ini, 1)
+        vx, vy = j.dir[0] * 5.5, j.dir[1] * 5.5
+        self.andar().tiros.append(Tiro(j.x, j.y, vx, vy, 1, True, (255, 250, 180), 4))
 
     def atirar_raio(self):
         j = self.jogador
@@ -433,7 +428,7 @@ class Jogo:
         if teclas[pygame.K_z]:
             self.furia()
 
-        for nome in ('invuln', 'cd_ataque', 'cd_raio', 'cd_dash', 'cd_furia', 'slash_t'):
+        for nome in ('invuln', 'cd_ataque', 'cd_raio', 'cd_dash', 'cd_furia'):
             v = getattr(j, nome)
             if v > 0:
                 setattr(j, nome, v - 1)
@@ -642,8 +637,6 @@ class Renderizador:
 
         # jogador
         j = jogo.jogador
-        if j.slash_t > 0 and j.slash_rect:
-            pygame.draw.ellipse(s, (255, 255, 255), j.slash_rect, 3)
         visivel = j.invuln == 0 or (j.invuln // 4) % 2 == 0
         if visivel:
             rect = j.rect()
@@ -760,7 +753,7 @@ class Renderizador:
         titulo = self.f_med.render(jogo.andar().titulo, True, (255, 240, 200))
         tela.blit(titulo, (LARG // 2 - titulo.get_width() // 2, 6))
         ajuda = self.f_peq.render(
-            'Setas/WASD mover · ESPAÇO atacar · E porta · C investida · Z fúria · X raio',
+            'Setas/WASD mover · ESPAÇO atirar · E porta · C investida · Z fúria · X raio',
             True, (170, 160, 150))
         tela.blit(ajuda, (LARG // 2 - ajuda.get_width() // 2, 28))
 
