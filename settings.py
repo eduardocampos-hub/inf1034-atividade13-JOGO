@@ -6,7 +6,7 @@ FPS = 60
 #PLAYER
 PLAYER_START_X = 0
 PLAYER_START_Y = 0
-PLAYER_SIZE = 0.3
+PLAYER_SIZE = 0.8
 PLAYER_SPEED = 6
 GUN_OFFSET_X = 55
 GUNOFFSET_Y  = 25
@@ -19,3 +19,9 @@ BULLET_LIFETIME = 750
 
 # ENEMY
 ENEMY_SPEED = 4
+
+
+#yuri jogadas
+TILE_SCALE = 3    # cada tile de 16px vira 48px na tela
+MAP_WIDTH = 40    # largura do mapa em tiles
+MAP_HEIGHT = 30   # altura do mapa em tiles
