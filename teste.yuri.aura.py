@@ -86,17 +86,7 @@ def desenhar_mapa(surface, mapa, offset):
                              (x * TILE_W - offset.x, y * TILE_H - offset.y))
 
 # ── ANIMAÇÃO ──────────────────────────────────────────────────────────────────
-#
-# Como funciona:
-#   - Cada estado (idle / walk / attack) é uma SPRITE SHEET: uma imagem PNG com
-#     os frames lado a lado, numa tira HORIZONTAL.
-#       Ex: hero_walk.png com 6 frames = imagem de 6x a largura de 1 frame.
-#   - Coloque os arquivos na mesma pasta do jogo com estes nomes:
-#       hero_idle.png   hero_walk.png   hero_attack.png
-#   - Ajuste a quantidade de frames de cada um nas constantes abaixo.
-#
-# Ainda não tem as artes? Sem problema: se o arquivo não existir, o jogo usa o
-# hero.png antigo como animação de 1 frame (não trava). Você troca depois.
+
 
 IDLE_FRAMES   = 6    # Idle.png → 1386px ÷ 231 = 6 frames
 WALK_FRAMES   = 8    # Run.png  → 1848px ÷ 231 = 8 frames
