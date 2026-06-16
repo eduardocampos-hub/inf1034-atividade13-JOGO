@@ -20,7 +20,6 @@ BULLET_LIFETIME = 750
 # ENEMY
 ENEMY_SPEED = 4
 
-
 #yuri jogadas
 TILE_SCALE = 3    # cada tile de 16px vira 48px na tela
 MAP_WIDTH = 40    # largura do mapa em tiles

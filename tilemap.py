@@ -77,17 +77,17 @@ def build_map():
     rocks = [_get_tile(sheet, x, y, size) for (x, y) in ROCK_TILES]
     brick = _get_tile(sheet, *BRICK_TILE, size)
 
-    map_w = MAP_WIDTH * size
-    map_h = MAP_HEIGHT * size
+    map_w = LARGURA * size
+    map_h = ALTURA * size
     surface = pygame.Surface((map_w, map_h))
 
     rng = random.Random(42)  # seed fixa: o mapa fica igual toda vez
 
-    for ty in range(MAP_HEIGHT):
-        for tx in range(MAP_WIDTH):
+    for ty in range(ALTURA):
+        for tx in range(LARGURA):
             px, py = tx * size, ty * size
             is_border = (tx == 0 or ty == 0 or
-                         tx == MAP_WIDTH - 1 or ty == MAP_HEIGHT - 1)
+                         tx == LARGURA - 1 or ty == ALTURA - 1)
             if is_border:
                 surface.blit(brick, (px, py))
             else:
