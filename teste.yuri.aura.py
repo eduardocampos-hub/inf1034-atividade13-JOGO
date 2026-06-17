@@ -17,7 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TILE_SIZE = 16                   # tamanho do tile dentro da imagem
 TILE = TILE_SIZE * TILE_SCALE    # tamanho do tile na tela
 
-WALKABLE = {18, 27}              # tiles onde dá pra pisar; o resto vira parede
+WALKABLE = {18, 27, 69, 70, 71}              # tiles onde dá pra pisar; o resto vira parede
 
 tileset_img = pygame.image.load(os.path.join(BASE_DIR, "tileset.png")).convert_alpha()
 TILESET_COLUNAS = tileset_img.get_width() // TILE_SIZE
