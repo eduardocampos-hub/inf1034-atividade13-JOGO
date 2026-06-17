@@ -95,7 +95,7 @@ class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         self.image = pygame.transform.rotozoom(
-            pygame.image.load('hero.png').convert_alpha(), 0, PLAYER_SIZE)
+            pygame.image.load('hero1.png').convert_alpha(), 0, PLAYER_SIZE)
         self.base_player_image = self.image
         self.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
         self.hitbox_rect = self.base_player_image.get_rect(center=self.pos)

@@ -14,76 +14,72 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ── MAPA ──────────────────────────────────────────────────────────────────────
 
-TILE_SIZE = 16
-TILE_W = TILE_SIZE * TILE_SCALE   # ex: 16 * 3 = 48px
-TILE_H = TILE_SIZE * TILE_SCALE
+TILE_SIZE = 16                   # tamanho do tile DENTRO da imagem tileset.png
+TILE = TILE_SIZE * TILE_SCALE    # tamanho do tile NA TELA (ex: 16*3 = 48px)
 
-# Tiles que o jogador PODE pisar — todo o resto vira hitbox
+# Tiles em que o jogador pode pisar. Qualquer outro número vira parede (colisão).
 WALKABLE = {18, 27}
 
-def carregar_csv(caminho):
-    mapa = []
-    with open(caminho) as f:
-        for linha in f:
-            linha = linha.strip().rstrip(',')
-            if linha:
-                mapa.append([int(x) for x in linha.split(',')])
-    return mapa
-
-def gerar_hitboxes(mapa):
-    hitboxes = []
-    for y, linha in enumerate(mapa):
-        for x, tile_id in enumerate(linha):
-            if tile_id not in WALKABLE:
-                hitboxes.append(pygame.Rect(
-                    x * TILE_W,
-                    y * TILE_H,
-                    TILE_W,
-                    TILE_H
-                ))
-    return hitboxes
-
-def hitboxes_proximas(rect, margem=96):
-    area = rect.inflate(margem, margem)
-    return [b for b in hitboxes if area.colliderect(b)]
-
-# Carrega tileset para renderização
+# Abre a imagem que tem todos os tiles e vê quantas colunas ela tem.
 tileset_img = pygame.image.load(os.path.join(BASE_DIR, "tileset.png")).convert_alpha()
 TILESET_COLUNAS = tileset_img.get_width() // TILE_SIZE
 
-def get_tile_surface(tile_id):
-    """Recorta o tile correto do spritesheet (tile_id começa em 1)."""
-    idx = tile_id - 1
-    col = idx % TILESET_COLUNAS
-    row = idx // TILESET_COLUNAS
-    rect = pygame.Rect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-    surf = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
-    surf.blit(tileset_img, (0, 0), rect)
-    return pygame.transform.scale(surf, (TILE_W, TILE_H))
 
-# Pré-renderiza todos os tiles usados (evita scale a cada frame)
+def carregar_csv(caminho):
+    # Lê o arquivo do mapa e devolve uma lista de listas de números.
+    mapa = []
+    arquivo = open(caminho)
+    for linha in arquivo:
+        linha = linha.strip().rstrip(",")        # tira espaços e a vírgula do fim
+        if linha != "":
+            numeros = []
+            for pedaco in linha.split(","):      # separa a linha pelas vírgulas
+                numeros.append(int(pedaco))      # transforma cada texto em número
+            mapa.append(numeros)
+    arquivo.close()
+    return mapa
+
+
+def pegar_tile(tile_id):
+    # Recorta da imagem o tile com esse número, já no tamanho da tela.
+    indice = tile_id - 1                 # o tile 1 é o primeiro (índice 0)
+    coluna = indice % TILESET_COLUNAS    # em que coluna ele está na imagem
+    linha  = indice // TILESET_COLUNAS   # em que linha ele está na imagem
+    area = pygame.Rect(coluna * TILE_SIZE, linha * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+    tile = tileset_img.subsurface(area)  # pega só aquele pedacinho da imagem
+    return pygame.transform.scale(tile, (TILE, TILE))   # aumenta pro tamanho da tela
+
+
+# Carrega o mapa do arquivo CSV.
 mapa_csv = carregar_csv(os.path.join(BASE_DIR, "mapa 1.csv"))
-ids_usados = {tile for linha in mapa_csv for tile in linha}
-tile_cache = {tid: get_tile_surface(tid) for tid in ids_usados if tid > 0}
+
+# Tamanho total do mapa em pixels (a câmera usa isso pra não sair do mapa).
+MAP_W = len(mapa_csv[0]) * TILE
+MAP_H = len(mapa_csv) * TILE
+
+
+def gerar_hitboxes(mapa):
+    # Cria um retângulo de colisão (parede) pra cada tile que não é chão.
+    hitboxes = []
+    for y in range(len(mapa)):
+        for x in range(len(mapa[y])):
+            tile_id = mapa[y][x]
+            if tile_id not in WALKABLE:
+                parede = pygame.Rect(x * TILE, y * TILE, TILE, TILE)
+                hitboxes.append(parede)
+    return hitboxes
 
 hitboxes = gerar_hitboxes(mapa_csv)
 
-MAP_W = len(mapa_csv[0]) * TILE_W
-MAP_H = len(mapa_csv)    * TILE_H
 
 def desenhar_mapa(surface, mapa, offset):
-    # Calcula quais tiles estão visíveis (evita desenhar fora da tela)
-    col_ini = max(0, int(offset.x // TILE_W))
-    col_fim = min(len(mapa[0]), int((offset.x + LARGURA) // TILE_W) + 1)
-    lin_ini = max(0, int(offset.y // TILE_H))
-    lin_fim = min(len(mapa),    int((offset.y + ALTURA)  // TILE_H) + 1)
-
-    for y in range(lin_ini, lin_fim):
-        for x in range(col_ini, col_fim):
+    # Desenha cada tile do mapa na tela, descontando a posição da câmera (offset).
+    for y in range(len(mapa)):
+        for x in range(len(mapa[y])):
             tile_id = mapa[y][x]
-            if tile_id > 0 and tile_id in tile_cache:
-                surface.blit(tile_cache[tile_id],
-                             (x * TILE_W - offset.x, y * TILE_H - offset.y))
+            if tile_id > 0:                       # 0 = vazio, não desenha
+                tile = pegar_tile(tile_id)
+                surface.blit(tile, (x * TILE - offset.x, y * TILE - offset.y))
 
 # ── ANIMAÇÃO ──────────────────────────────────────────────────────────────────
 
@@ -160,8 +156,10 @@ class Player(pygame.sprite.Sprite):
         self.image = self.base_player_image
 
         self.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
-        # Hitbox fixa baseada no frame idle (não muda de tamanho entre animações)
-        self.hitbox_rect = self.animations['idle'][0].get_rect(center=self.pos)
+        # Hitbox pequena (só o corpo do mago), não o sprite inteiro. O sprite
+        # continua grande; só a COLISÃO é menor, pra passar por portas/corredores.
+        self.hitbox_rect = pygame.Rect(0, 0, 40, 52)
+        self.hitbox_rect.center = self.pos
         self.rect = self.hitbox_rect.copy()
 
         self.shoot = False
@@ -252,7 +250,7 @@ class Player(pygame.sprite.Sprite):
         # X
         self.pos.x += self.velocity_x
         self.hitbox_rect.centerx = int(self.pos.x)
-        for box in hitboxes_proximas(self.hitbox_rect):
+        for box in hitboxes:
             if self.hitbox_rect.colliderect(box):
                 if self.velocity_x > 0:
                     self.hitbox_rect.right = box.left
@@ -263,7 +261,7 @@ class Player(pygame.sprite.Sprite):
         # Y
         self.pos.y += self.velocity_y
         self.hitbox_rect.centery = int(self.pos.y)
-        for box in hitboxes_proximas(self.hitbox_rect):
+        for box in hitboxes:
             if self.hitbox_rect.colliderect(box):
                 if self.velocity_y > 0:
                     self.hitbox_rect.bottom = box.top
@@ -333,6 +331,10 @@ class Camera(pygame.sprite.Group):
     def custom_draw(self):
         self.offset.x = player.rect.centerx - LARGURA // 2
         self.offset.y = player.rect.centery  - ALTURA  // 2
+
+        # Trava a câmera nas bordas do mapa (impede mostrar o "preto" fora do mapa)
+        self.offset.x = max(0, min(self.offset.x, MAP_W - LARGURA))
+        self.offset.y = max(0, min(self.offset.y, MAP_H - ALTURA))
 
         desenhar_mapa(screen, mapa_csv, self.offset)
 

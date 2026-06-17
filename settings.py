@@ -4,8 +4,8 @@ ALTURA = 720
 FPS = 60
 
 #PLAYER
-PLAYER_START_X = 0
-PLAYER_START_Y = 0
+PLAYER_START_X = 720   # nasce no meio do mapa (chão), não no canto/parede
+PLAYER_START_Y = 720
 PLAYER_SIZE = 0.8
 PLAYER_SPEED = 6
 GUN_OFFSET_X = 55
