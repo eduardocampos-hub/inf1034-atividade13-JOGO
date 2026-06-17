@@ -12,54 +12,47 @@ clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ── MAPA ──────────────────────────────────────────────────────────────────────
+# Mapa
 
-TILE_SIZE = 16                   # tamanho do tile DENTRO da imagem tileset.png
-TILE = TILE_SIZE * TILE_SCALE    # tamanho do tile NA TELA (ex: 16*3 = 48px)
+TILE_SIZE = 16                   # tamanho do tile dentro da imagem
+TILE = TILE_SIZE * TILE_SCALE    # tamanho do tile na tela
 
-# Tiles em que o jogador pode pisar. Qualquer outro número vira parede (colisão).
-WALKABLE = {18, 27}
+WALKABLE = {18, 27}              # tiles onde dá pra pisar; o resto vira parede
 
-# Abre a imagem que tem todos os tiles e vê quantas colunas ela tem.
 tileset_img = pygame.image.load(os.path.join(BASE_DIR, "tileset.png")).convert_alpha()
 TILESET_COLUNAS = tileset_img.get_width() // TILE_SIZE
 
 
 def carregar_csv(caminho):
-    # Lê o arquivo do mapa e devolve uma lista de listas de números.
     mapa = []
     arquivo = open(caminho)
     for linha in arquivo:
-        linha = linha.strip().rstrip(",")        # tira espaços e a vírgula do fim
+        linha = linha.strip().rstrip(",")
         if linha != "":
             numeros = []
-            for pedaco in linha.split(","):      # separa a linha pelas vírgulas
-                numeros.append(int(pedaco))      # transforma cada texto em número
+            for pedaco in linha.split(","):
+                numeros.append(int(pedaco))
             mapa.append(numeros)
     arquivo.close()
     return mapa
 
 
 def pegar_tile(tile_id):
-    # Recorta da imagem o tile com esse número, já no tamanho da tela.
-    indice = tile_id - 1                 # o tile 1 é o primeiro (índice 0)
-    coluna = indice % TILESET_COLUNAS    # em que coluna ele está na imagem
-    linha  = indice // TILESET_COLUNAS   # em que linha ele está na imagem
+    indice = tile_id - 1
+    coluna = indice % TILESET_COLUNAS
+    linha  = indice // TILESET_COLUNAS
     area = pygame.Rect(coluna * TILE_SIZE, linha * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-    tile = tileset_img.subsurface(area)  # pega só aquele pedacinho da imagem
-    return pygame.transform.scale(tile, (TILE, TILE))   # aumenta pro tamanho da tela
+    tile = tileset_img.subsurface(area)
+    return pygame.transform.scale(tile, (TILE, TILE))
 
 
-# Carrega o mapa do arquivo CSV.
 mapa_csv = carregar_csv(os.path.join(BASE_DIR, "mapa 1.csv"))
 
-# Tamanho total do mapa em pixels (a câmera usa isso pra não sair do mapa).
 MAP_W = len(mapa_csv[0]) * TILE
 MAP_H = len(mapa_csv) * TILE
 
 
 def gerar_hitboxes(mapa):
-    # Cria um retângulo de colisão (parede) pra cada tile que não é chão.
     hitboxes = []
     for y in range(len(mapa)):
         for x in range(len(mapa[y])):
@@ -73,25 +66,21 @@ hitboxes = gerar_hitboxes(mapa_csv)
 
 
 def desenhar_mapa(surface, mapa, offset):
-    # Desenha cada tile do mapa na tela, descontando a posição da câmera (offset).
     for y in range(len(mapa)):
         for x in range(len(mapa[y])):
             tile_id = mapa[y][x]
-            if tile_id > 0:                       # 0 = vazio, não desenha
+            if tile_id > 0:
                 tile = pegar_tile(tile_id)
                 surface.blit(tile, (x * TILE - offset.x, y * TILE - offset.y))
 
-# ── ANIMAÇÃO ──────────────────────────────────────────────────────────────────
+# Animação
 
-
-IDLE_FRAMES   = 6    # Idle.png → 1386px ÷ 231 = 6 frames
-WALK_FRAMES   = 8    # Run.png  → 1848px ÷ 231 = 8 frames
-ATTACK_FRAMES = 4    # Hit.png  →  924px ÷ 231 = 4 frames
-ANIM_SPEED    = 0.15 # velocidade da animação (frames por tick; maior = mais rápido)
+IDLE_FRAMES   = 6    # Idle.png → 6 frames
+WALK_FRAMES   = 8    # Run.png  → 8 frames
+ATTACK_FRAMES = 4    # Hit.png  → 4 frames
+ANIM_SPEED    = 0.15
 
 def carregar_animacao(nome_arquivo, num_frames, escala, fallback="hero.png"):
-    """Fatia uma sprite sheet horizontal em uma lista de frames já escalados.
-    Se o arquivo não existir, usa o fallback como animação de 1 frame."""
     caminho = os.path.join(BASE_DIR, nome_arquivo)
 
     if os.path.exists(caminho):
@@ -106,14 +95,12 @@ def carregar_animacao(nome_arquivo, num_frames, escala, fallback="hero.png"):
             frames.append(pygame.transform.rotozoom(frame, 0, escala))
         return frames
 
-    # fallback: ainda não há sprite sheet, usa a imagem única antiga
+    # fallback enquanto não há sprite sheet
     img = pygame.image.load(os.path.join(BASE_DIR, fallback)).convert_alpha()
     return [pygame.transform.rotozoom(img, 0, escala)]
 
 def normalizar_frames(animations):
-    """Coloca TODOS os frames no mesmo tamanho de canvas, centralizados.
-    Isso impede o personagem de 'pular' de lugar (teletransporte visual)
-    quando os frames têm tamanhos diferentes entre si."""
+    # mesmo tamanho de canvas em todos os frames, senão o boneco "pula" ao trocar de animação
     maxw = max(f.get_width()  for frames in animations.values() for f in frames)
     maxh = max(f.get_height() for frames in animations.values() for f in frames)
     for estado, frames in animations.items():
@@ -126,7 +113,7 @@ def normalizar_frames(animations):
         animations[estado] = novos
     return animations
 
-# ── SPRITES ───────────────────────────────────────────────────────────────────
+# Sprites
 
 all_sprites_group = pygame.sprite.Group()
 bullet_group       = pygame.sprite.Group()
@@ -136,28 +123,24 @@ class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
 
-        # Dicionário com todas as animações já carregadas e escaladas
         self.animations = {
             'idle':   carregar_animacao('Idle.png', IDLE_FRAMES,   PLAYER_SIZE),
             'walk':   carregar_animacao('Run.png',  WALK_FRAMES,   PLAYER_SIZE),
             'attack': carregar_animacao('Hit.png',  ATTACK_FRAMES, PLAYER_SIZE),
         }
-        # Deixa todos os frames do mesmo tamanho (evita o teletransporte visual)
         self.animations = normalizar_frames(self.animations)
 
-        self.state        = 'idle'   # estado atual da animação
-        self.frame_index  = 0.0      # frame atual (float, pra controlar a velocidade)
-        self.attacking    = False    # True enquanto a animação de ataque toca
-        self.angle        = 0        # ângulo em direção ao mouse (usado pelos tiros)
-        self.facing_left  = False    # pra qual lado o boneco está virado
+        self.state        = 'idle'
+        self.frame_index  = 0.0
+        self.attacking    = False
+        self.angle        = 0
+        self.facing_left  = False
 
-        # A imagem base é o frame atual; player_aim() decide o flip
         self.base_player_image = self.animations['idle'][0]
         self.image = self.base_player_image
 
         self.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
-        # Hitbox pequena (só o corpo do mago), não o sprite inteiro. O sprite
-        # continua grande; só a COLISÃO é menor, pra passar por portas/corredores.
+        # hitbox menor que o sprite (só o corpo), pra passar pelos corredores
         self.hitbox_rect = pygame.Rect(0, 0, 40, 52)
         self.hitbox_rect.center = self.pos
         self.rect = self.hitbox_rect.copy()
@@ -168,15 +151,13 @@ class Player(pygame.sprite.Sprite):
         self.gun_barrel_offset = pygame.math.Vector2(GUN_OFFSET_X, GUNOFFSET_Y)
 
     def player_aim(self):
-        # Calcula o ângulo até o mouse — usado SÓ pelos tiros, não pra girar o boneco
         self.mouse_coords = pygame.mouse.get_pos()
         self.x_change_mouse_player = self.mouse_coords[0] - LARGURA // 2
         self.y_change_mouse_player = self.mouse_coords[1] - ALTURA  // 2
         self.angle = math.degrees(
             math.atan2(self.y_change_mouse_player, self.x_change_mouse_player))
 
-        # Vira o boneco pro lado do mouse SEM deitar ele (espelha na horizontal).
-        # Mantém o último lado quando o mouse está bem no centro, pra não tremer.
+        # espelha o boneco pro lado do mouse; a zona morta no centro evita o tremido
         if self.x_change_mouse_player < -1:
             self.facing_left = True
         elif self.x_change_mouse_player > 1:
@@ -199,6 +180,7 @@ class Player(pygame.sprite.Sprite):
         if keys[pygame.K_a]: self.velocity_x = -self.speed
         if keys[pygame.K_d]: self.velocity_x =  self.speed
 
+        # normaliza a diagonal pra não andar mais rápido na diagonal
         if self.velocity_x != 0 and self.velocity_y != 0:
             self.velocity_x /= math.sqrt(2)
             self.velocity_y /= math.sqrt(2)
@@ -212,17 +194,14 @@ class Player(pygame.sprite.Sprite):
     def is_shooting(self):
         if self.shot_cooldown == 0:
             self.shot_cooldown = SHOOT_COOLDOWN
-            # Dispara o tiro
             spawn_pos = self.pos + self.gun_barrel_offset.rotate(self.angle)
             bullet = Bullet(spawn_pos.x, spawn_pos.y, self.angle)
             bullet_group.add(bullet)
             all_sprites_group.add(bullet)
-            # Dispara a animação de ataque (reinicia do começo a cada tiro)
             self.attacking   = True
             self.frame_index = 0.0
 
     def set_state(self):
-        """Decide qual animação tocar. Ataque tem prioridade e trava até terminar."""
         if self.attacking:
             novo = 'attack'
         elif self.velocity_x != 0 or self.velocity_y != 0:
@@ -230,7 +209,6 @@ class Player(pygame.sprite.Sprite):
         else:
             novo = 'idle'
 
-        # Ao trocar de estado, reinicia o índice (evita estourar o tamanho da lista)
         if novo != self.state:
             self.state = novo
             self.frame_index = 0.0
@@ -242,12 +220,11 @@ class Player(pygame.sprite.Sprite):
         if self.frame_index >= len(animation):
             self.frame_index = 0.0
             if self.state == 'attack':
-                self.attacking = False   # terminou o golpe, volta pro idle/walk
+                self.attacking = False   # acabou o golpe, volta pro idle/walk
 
         self.base_player_image = animation[int(self.frame_index)]
 
     def move(self):
-        # X
         self.pos.x += self.velocity_x
         self.hitbox_rect.centerx = int(self.pos.x)
         for box in hitboxes:
@@ -258,7 +235,6 @@ class Player(pygame.sprite.Sprite):
                     self.hitbox_rect.left  = box.right
                 self.pos.x = self.hitbox_rect.centerx
 
-        # Y
         self.pos.y += self.velocity_y
         self.hitbox_rect.centery = int(self.pos.y)
         for box in hitboxes:
@@ -272,11 +248,11 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = self.hitbox_rect.center
 
     def update(self):
-        self.user_input()       # movimento + dispara ataque
+        self.user_input()
         self.move()
-        self.set_state()        # escolhe idle / walk / attack
-        self.animate()          # avança o frame da animação
-        self.player_aim()       # mira no mouse + espelha o boneco pro lado certo
+        self.set_state()
+        self.animate()
+        self.player_aim()
         if self.shot_cooldown > 0:
             self.shot_cooldown -= 1
 
@@ -332,7 +308,7 @@ class Camera(pygame.sprite.Group):
         self.offset.x = player.rect.centerx - LARGURA // 2
         self.offset.y = player.rect.centery  - ALTURA  // 2
 
-        # Trava a câmera nas bordas do mapa (impede mostrar o "preto" fora do mapa)
+        # trava a câmera nas bordas pra não mostrar o vazio fora do mapa
         self.offset.x = max(0, min(self.offset.x, MAP_W - LARGURA))
         self.offset.y = max(0, min(self.offset.y, MAP_H - ALTURA))
 
@@ -341,7 +317,6 @@ class Camera(pygame.sprite.Group):
         for sprite in all_sprites_group:
             screen.blit(sprite.image, sprite.rect.topleft - self.offset)
 
-# ── INSTÂNCIAS ────────────────────────────────────────────────────────────────
 
 player      = Player()
 camera      = Camera()
@@ -349,7 +324,6 @@ necromancer = Enemy((400, 400))
 
 all_sprites_group.add(player)
 
-# ── GAME LOOP ─────────────────────────────────────────────────────────────────
 
 while True:
     for event in pygame.event.get():
@@ -357,11 +331,11 @@ while True:
             pygame.quit()
             exit()
 
-    screen.fill((0, 0, 0))          # limpa a tela (evita rastro dos sprites)
-    all_sprites_group.update()      # atualiza primeiro...
-    camera.custom_draw()            # ...depois desenha
+    screen.fill((0, 0, 0))
+    all_sprites_group.update()
+    camera.custom_draw()
 
-    # DEBUG — remova quando as hitboxes estiverem certas
+    # DEBUG — descomenta pra ver as hitboxes
     # for box in hitboxes:
     #     pos = (box.x - camera.offset.x, box.y - camera.offset.y, box.width, box.height)
     #     pygame.draw.rect(screen, (255, 0, 0), pos, 1)
