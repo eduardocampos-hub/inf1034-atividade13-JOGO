@@ -49,6 +49,7 @@ def carregar_tileset(nome, tile_px=TILE_SIZE):
 TS_MAPA1 = carregar_tileset("tileset.png")                  # tiles de 16px
 TS_GRASS = carregar_tileset("TX Tileset Grass.png", 32)     # chao do mapa 3, 32px
 TS_WALL  = carregar_tileset("TX Tileset Wall.png", 32)      # parede do mapa 3, 32px
+TS_PLANT = carregar_tileset("TX Plant.png", 32)             # objetos do mapa 3, 32px
 
 tileset_img, TILESET_COLUNAS, _ = TS_MAPA1                  # padrao do pegar_tile
 
@@ -79,15 +80,18 @@ def pegar_tile(tile_id, tileset=None, colunas=None, tile_px=TILE_SIZE):
 
 
 def gerar_mapa_plano(colunas, linhas, piso=MAPA2_PISO):
-    """Carrega o MAPA 3 (duas camadas: chao por baixo + parede por cima) e
-    devolve (chao, parede). Se os arquivos do mapa 3 nao existirem, cai no
-    mapa plano antigo (uma camada so de chao), devolvendo (None, plano)."""
+    """Carrega o MAPA 3 (tres camadas: chao por baixo, parede no meio e objetos
+    por cima) e devolve (chao, parede, obj). Se os arquivos do mapa 3 nao
+    existirem, cai no mapa plano antigo, devolvendo (None, plano, None).
+    A camada de objetos (mapa 3_obj.csv) eh opcional: se faltar, vem None."""
     chao_path   = os.path.join(BASE_DIR, "mapa 3_chao.csv")
     parede_path = os.path.join(BASE_DIR, "mapa 3_parede.csv")
+    obj_path    = os.path.join(BASE_DIR, "mapa 3_obj.csv")
     if os.path.exists(chao_path) and os.path.exists(parede_path):
-        return carregar_csv(chao_path), carregar_csv(parede_path)
+        obj = carregar_csv(obj_path) if os.path.exists(obj_path) else None
+        return carregar_csv(chao_path), carregar_csv(parede_path), obj
     plano = [[piso for _ in range(colunas)] for _ in range(linhas)]
-    return None, plano
+    return None, plano, None
 
 
 def achar_tile(mapa, tile_id):
@@ -165,19 +169,21 @@ if achar_tile(mapa_csv, TELEPORTE_ID) is None:
 # 'mapa2' eh a camada de PAREDE (colisao + desenhada por cima); 'chao2' eh o
 # piso desenhado por baixo. No mapa 3 o vazio andavel eh -1; no fallback plano
 # o chao usa os tiles do conjunto WALKABLE.
-chao2, mapa2 = gerar_mapa_plano(MAPA2_COLUNAS, MAPA2_LINHAS, MAPA2_PISO)
+chao2, mapa2, obj2 = gerar_mapa_plano(MAPA2_COLUNAS, MAPA2_LINHAS, MAPA2_PISO)
 mapa2[len(mapa2) // 2][len(mapa2[0]) // 2] = TELEPORTE_ID
 WALKABLE2 = {-1, TELEPORTE_ID} if chao2 is not None else WALKABLE
 
 PORTAL_SURF = surface_teleporte()   # usado pelo desenhar_mapa
 
 # Tudo que muda quando troca de mapa fica em listas (indice = qual mapa).
-mapas            = [mapa_csv, mapa2]                 # camada de colisao/topo
+mapas            = [mapa_csv, mapa2]                 # camada de colisao/topo (parede)
 chaos            = [None, chao2]                     # camada de piso (ou None)
+objs             = [None, obj2]                      # camada de objetos (ou None)
 walkables_mapas  = [WALKABLE, WALKABLE2]             # o que eh andavel em cada um
-# tileset (imagem, colunas) de cada CAMADA. Mapa 1 so tem a camada principal.
+# tileset (imagem, colunas, tile_px) de cada CAMADA. Mapa 1 so tem a principal.
 ts_principal_mapas = [TS_MAPA1, TS_WALL]             # tileset da parede/topo
 ts_chao_mapas      = [None,     TS_GRASS]            # tileset do piso (ou None)
+ts_obj_mapas       = [None,     TS_PLANT]            # tileset dos objetos (ou None)
 mapw_mapas       = [len(mapa_csv[0]) * TILE, len(mapa2[0]) * TILE]
 maph_mapas       = [len(mapa_csv) * TILE,    len(mapa2) * TILE]
 teleportes_mapas = [achar_tile(mapa_csv, TELEPORTE_ID), achar_tile(mapa2, TELEPORTE_ID)]
@@ -193,6 +199,8 @@ def gerar_hitboxes(mapa, walkable):
                 hitboxes.append(parede)
     return hitboxes
 
+
+# Objetos (camada obj) sao so visuais: NAO entram na colisao, so a parede entra.
 hitboxes_mapas = [gerar_hitboxes(m, w) for m, w in zip(mapas, walkables_mapas)]
 
 
@@ -205,11 +213,13 @@ class Mundo:
 
     def ir_para(self, indice):
         self.indice  = indice
-        self.mapa = mapas[indice]            # camada de colisao/topo
+        self.mapa = mapas[indice]            # camada de colisao/topo (parede)
         self.chao = chaos[indice]            # camada de piso (ou None)
+        self.obj = objs[indice]              # camada de objetos (ou None)
         self.hitboxes = hitboxes_mapas[indice]
         self.ts_principal = ts_principal_mapas[indice]
         self.ts_chao = ts_chao_mapas[indice]
+        self.ts_obj = ts_obj_mapas[indice]
         self.largura = mapw_mapas[indice]       # a camera usa pra travar nas bordas
         self.altura = maph_mapas[indice]
         self.teleporte = teleportes_mapas[indice]
@@ -242,9 +252,11 @@ def desenhar_camada(surface, mapa, offset, ts):
 
 
 def desenhar_mapa(surface, chao, mapa, offset, ts_chao, ts_principal):
-    if chao is not None:                            # mapa 3: piso por baixo (Grass)
+    # camadas DEBAIXO do personagem: chao (Grass) por baixo, parede (Wall) por cima.
+    # Os objetos (plantas) sao desenhados depois dos sprites, na camera.
+    if chao is not None:
         desenhar_camada(surface, chao, offset, ts_chao)
-    desenhar_camada(surface, mapa, offset, ts_principal)  # paredes/tiles por cima (Wall)
+    desenhar_camada(surface, mapa, offset, ts_principal)
 
 # Animação
 
@@ -523,10 +535,17 @@ class Camera(pygame.sprite.Group):
         self.offset.x = max(0, min(self.offset.x, mundo.largura - LARGURA))
         self.offset.y = max(0, min(self.offset.y, mundo.altura  - ALTURA))
 
-        desenhar_mapa(screen, mundo.chao, mundo.mapa, self.offset, mundo.ts_chao, mundo.ts_principal)
+        # camadas debaixo do personagem: chao + parede
+        desenhar_mapa(screen, mundo.chao, mundo.mapa, self.offset,
+                      mundo.ts_chao, mundo.ts_principal)
 
+        # personagem e outros sprites
         for sprite in all_sprites_group:
             screen.blit(sprite.image, sprite.rect.topleft - self.offset)
+
+        # objetos (plantas) POR CIMA do personagem: ele passa por tras delas
+        if mundo.obj is not None:
+            desenhar_camada(screen, mundo.obj, self.offset, mundo.ts_obj)
 
 
 player      = Player()
