@@ -33,8 +33,25 @@ MAPA2_PISO = 18                        # tile de chao do mapa plano
 # tiles onde dá pra pisar; o resto vira parede (o portal tambem precisa ser pisavel)
 WALKABLE = {18, 27, 69, 70, 71, TELEPORTE_ID}
 
-tileset_img = pygame.image.load(os.path.join(BASE_DIR, "tileset.png")).convert_alpha()
-TILESET_COLUNAS = tileset_img.get_width() // TILE_SIZE
+def carregar_tileset(nome, tile_px=TILE_SIZE):
+    """Carrega um tileset e devolve (imagem, num_colunas, tile_px).
+    tile_px = tamanho do tile DENTRO da imagem (origem; o tileset.png tem 16,
+    os TX Tileset tem 32). Procura na pasta do jogo e, se nao achar, no Desktop."""
+    for base in (BASE_DIR, os.path.dirname(BASE_DIR)):
+        caminho = os.path.join(base, nome)
+        if os.path.exists(caminho):
+            img = pygame.image.load(caminho).convert_alpha()
+            return img, img.get_width() // tile_px, tile_px
+    raise FileNotFoundError(nome)
+
+# Mapa 1 usa um tileset so (16px). O mapa 3 usa um por camada, ambos de 32px:
+# chao = Grass, parede = Wall.
+TS_MAPA1 = carregar_tileset("tileset.png")                  # tiles de 16px
+TS_GRASS = carregar_tileset("TX Tileset Grass.png", 32)     # chao do mapa 3, 32px
+TS_WALL  = carregar_tileset("TX Tileset Wall.png", 32)      # parede do mapa 3, 32px
+TS_PLANT = carregar_tileset("TX Plant.png", 32)             # objetos do mapa 3, 32px
+
+tileset_img, TILESET_COLUNAS, _ = TS_MAPA1                  # padrao do pegar_tile
 
 
 def carregar_csv(caminho):
@@ -51,18 +68,30 @@ def carregar_csv(caminho):
     return mapa
 
 
-def pegar_tile(tile_id):
+def pegar_tile(tile_id, tileset=None, colunas=None, tile_px=TILE_SIZE):
+    if tileset is None:                       # padrao: tileset do mapa 1 (16px)
+        tileset, colunas, tile_px = tileset_img, TILESET_COLUNAS, TILE_SIZE
     indice = tile_id - 1
-    coluna = indice % TILESET_COLUNAS
-    linha  = indice // TILESET_COLUNAS
-    area = pygame.Rect(coluna * TILE_SIZE, linha * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-    tile = tileset_img.subsurface(area)
-    return pygame.transform.scale(tile, (TILE, TILE))
+    coluna = indice % colunas
+    linha  = indice // colunas
+    area = pygame.Rect(coluna * tile_px, linha * tile_px, tile_px, tile_px)
+    tile = tileset.subsurface(area)
+    return pygame.transform.scale(tile, (TILE, TILE))   # escala pro tamanho da tela
 
 
 def gerar_mapa_plano(colunas, linhas, piso=MAPA2_PISO):
-    """Cria um mapa todo de chao (completamente plano)."""
-    return [[piso for _ in range(colunas)] for _ in range(linhas)]
+    """Carrega o MAPA 3 (tres camadas: chao por baixo, parede no meio e objetos
+    por cima) e devolve (chao, parede, obj). Se os arquivos do mapa 3 nao
+    existirem, cai no mapa plano antigo, devolvendo (None, plano, None).
+    A camada de objetos (mapa 3_obj.csv) eh opcional: se faltar, vem None."""
+    chao_path   = os.path.join(BASE_DIR, "mapa 3_chao.csv")
+    parede_path = os.path.join(BASE_DIR, "mapa 3_parede.csv")
+    obj_path    = os.path.join(BASE_DIR, "mapa 3_obj.csv")
+    if os.path.exists(chao_path) and os.path.exists(parede_path):
+        obj = carregar_csv(obj_path) if os.path.exists(obj_path) else None
+        return carregar_csv(chao_path), carregar_csv(parede_path), obj
+    plano = [[piso for _ in range(colunas)] for _ in range(linhas)]
+    return None, plano, None
 
 
 def achar_tile(mapa, tile_id):
@@ -136,48 +165,71 @@ if achar_tile(mapa_csv, TELEPORTE_ID) is None:
     if pos:
         mapa_csv[pos[1]][pos[0]] = TELEPORTE_ID
 
-# Segundo mapa: completamente plano, com 1 portal no meio.
-mapa2 = gerar_mapa_plano(MAPA2_COLUNAS, MAPA2_LINHAS, MAPA2_PISO)
-mapa2[MAPA2_LINHAS // 2][MAPA2_COLUNAS // 2] = TELEPORTE_ID
+# Segundo mapa: o MAPA 3 (chao + parede), com 1 portal no meio.
+# 'mapa2' eh a camada de PAREDE (colisao + desenhada por cima); 'chao2' eh o
+# piso desenhado por baixo. No mapa 3 o vazio andavel eh -1; no fallback plano
+# o chao usa os tiles do conjunto WALKABLE.
+chao2, mapa2, obj2 = gerar_mapa_plano(MAPA2_COLUNAS, MAPA2_LINHAS, MAPA2_PISO)
+mapa2[len(mapa2) // 2][len(mapa2[0]) // 2] = TELEPORTE_ID
+WALKABLE2 = {-1, TELEPORTE_ID} if chao2 is not None else WALKABLE
 
 PORTAL_SURF = surface_teleporte()   # usado pelo desenhar_mapa
 
 # Tudo que muda quando troca de mapa fica em listas (indice = qual mapa).
-mapas            = [mapa_csv, mapa2]
+mapas            = [mapa_csv, mapa2]                 # camada de colisao/topo (parede)
+chaos            = [None, chao2]                     # camada de piso (ou None)
+objs             = [None, obj2]                      # camada de objetos (ou None)
+walkables_mapas  = [WALKABLE, WALKABLE2]             # o que eh andavel em cada um
+# tileset (imagem, colunas, tile_px) de cada CAMADA. Mapa 1 so tem a principal.
+ts_principal_mapas = [TS_MAPA1, TS_WALL]             # tileset da parede/topo
+ts_chao_mapas      = [None,     TS_GRASS]            # tileset do piso (ou None)
+ts_obj_mapas       = [None,     TS_PLANT]            # tileset dos objetos (ou None)
 mapw_mapas       = [len(mapa_csv[0]) * TILE, len(mapa2[0]) * TILE]
 maph_mapas       = [len(mapa_csv) * TILE,    len(mapa2) * TILE]
 teleportes_mapas = [achar_tile(mapa_csv, TELEPORTE_ID), achar_tile(mapa2, TELEPORTE_ID)]
-mapa_atual = 0
-
-MAP_W = mapw_mapas[mapa_atual]
-MAP_H = maph_mapas[mapa_atual]
 
 
-def gerar_hitboxes(mapa):
+def gerar_hitboxes(mapa, walkable):
     hitboxes = []
     for y in range(len(mapa)):
         for x in range(len(mapa[y])):
             tile_id = mapa[y][x]
-            if tile_id not in WALKABLE:
+            if tile_id not in walkable:
                 parede = pygame.Rect(x * TILE, y * TILE, TILE, TILE)
                 hitboxes.append(parede)
     return hitboxes
 
-hitboxes_mapas = [gerar_hitboxes(mapa_csv), gerar_hitboxes(mapa2)]
-hitboxes = hitboxes_mapas[mapa_atual]
+
+# Objetos (camada obj) sao so visuais: NAO entram na colisao, so a parede entra.
+hitboxes_mapas = [gerar_hitboxes(m, w) for m, w in zip(mapas, walkables_mapas)]
+
+
+class Mundo:
+    """Guarda o estado do mapa ATIVO (mapa, chao, hitboxes, tilesets, tamanho).
+    Trocar de mapa = so mexer nos atributos deste objeto; por isso o resto do
+    codigo nao precisa de 'global', ele le sempre 'mundo.algo'."""
+    def __init__(self, indice=0):
+        self.ir_para(indice)
+
+    def ir_para(self, indice):
+        self.indice  = indice
+        self.mapa = mapas[indice]            # camada de colisao/topo (parede)
+        self.chao = chaos[indice]            # camada de piso (ou None)
+        self.obj = objs[indice]              # camada de objetos (ou None)
+        self.hitboxes = hitboxes_mapas[indice]
+        self.ts_principal = ts_principal_mapas[indice]
+        self.ts_chao = ts_chao_mapas[indice]
+        self.ts_obj = ts_obj_mapas[indice]
+        self.largura = mapw_mapas[indice]       # a camera usa pra travar nas bordas
+        self.altura = maph_mapas[indice]
+        self.teleporte = teleportes_mapas[indice]
+
+mundo = Mundo(0)
 
 
 def trocar_mapa():
-    """Troca o mapa ATIVO e poe o jogador em cima do portal do outro mapa.
-    So reaponta as globais que o resto do jogo ja usa: mapa_csv, hitboxes,
-    MAP_W e MAP_H (este ultimo a camera usa pra travar nas bordas)."""
-    global mapa_atual, mapa_csv, hitboxes, MAP_W, MAP_H
-    mapa_atual = 1 - mapa_atual            # alterna entre 0 e 1
-    mapa_csv = mapas[mapa_atual]
-    hitboxes = hitboxes_mapas[mapa_atual]
-    MAP_W = mapw_mapas[mapa_atual]
-    MAP_H = maph_mapas[mapa_atual]
-    col, row = teleportes_mapas[mapa_atual]
+    mundo.ir_para(1 - mundo.indice)        # alterna entre 0 e 1
+    col, row = mundo.teleporte
     player.pos.x = col * TILE + TILE // 2
     player.pos.y = row * TILE + TILE // 2
     player.hitbox_rect.center = (int(player.pos.x), int(player.pos.y))
@@ -185,7 +237,8 @@ def trocar_mapa():
     player.desencostar_paredes()   # nao deixa o player nascer preso numa parede
 
 
-def desenhar_mapa(surface, mapa, offset):
+def desenhar_camada(surface, mapa, offset, ts):
+    tileset, colunas, tile_px = ts          # ts = (imagem, num_colunas, tile_px)
     for y in range(len(mapa)):
         for x in range(len(mapa[y])):
             tile_id = mapa[y][x]
@@ -194,15 +247,23 @@ def desenhar_mapa(surface, mapa, offset):
             if tile_id == TELEPORTE_ID:
                 tile = PORTAL_SURF          # o portal tem desenho proprio
             else:
-                tile = pegar_tile(tile_id)
+                tile = pegar_tile(tile_id, tileset, colunas, tile_px)
             surface.blit(tile, (x * TILE - offset.x, y * TILE - offset.y))
+
+
+def desenhar_mapa(surface, chao, mapa, offset, ts_chao, ts_principal):
+    # camadas DEBAIXO do personagem: chao (Grass) por baixo, parede (Wall) por cima.
+    # Os objetos (plantas) sao desenhados depois dos sprites, na camera.
+    if chao is not None:
+        desenhar_camada(surface, chao, offset, ts_chao)
+    desenhar_camada(surface, mapa, offset, ts_principal)
 
 # Animação
 
-IDLE_FRAMES   = 6    # Idle.png → 6 frames
-WALK_FRAMES   = 8    # Run.png  → 8 frames
+IDLE_FRAMES = 6    # Idle.png → 6 frames
+WALK_FRAMES = 8    # Run.png  → 8 frames
 ATTACK_FRAMES = 4    # Hit.png  → 4 frames
-ANIM_SPEED    = 0.15
+ANIM_SPEED = 0.15
 
 def carregar_animacao(nome_arquivo, num_frames, escala, fallback="hero.png"):
     caminho = os.path.join(BASE_DIR, nome_arquivo)
@@ -353,7 +414,7 @@ class Player(pygame.sprite.Sprite):
     def move(self):
         self.pos.x += self.velocity_x
         self.hitbox_rect.centerx = int(self.pos.x)
-        for box in hitboxes:
+        for box in mundo.hitboxes:
             if self.hitbox_rect.colliderect(box):
                 if self.velocity_x > 0:
                     self.hitbox_rect.right = box.left
@@ -363,7 +424,7 @@ class Player(pygame.sprite.Sprite):
 
         self.pos.y += self.velocity_y
         self.hitbox_rect.centery = int(self.pos.y)
-        for box in hitboxes:
+        for box in mundo.hitboxes:
             if self.hitbox_rect.colliderect(box):
                 if self.velocity_y > 0:
                     self.hitbox_rect.bottom = box.top
@@ -377,7 +438,7 @@ class Player(pygame.sprite.Sprite):
         """Apos teleportar, empurra o player pra fora de qualquer parede pelo
         MENOR caminho. Sem isso, cair colado numa parede (ex: portal no canto)
         faz a move() empurrar o player em cascata pra fora do mapa."""
-        for box in hitboxes:
+        for box in mundo.hitboxes:
             if self.hitbox_rect.colliderect(box):
                 dx_esq   = box.right - self.hitbox_rect.left      # empurrar pra direita
                 dx_dir   = self.hitbox_rect.right - box.left      # empurrar pra esquerda
@@ -398,8 +459,8 @@ class Player(pygame.sprite.Sprite):
         mapa: so libera de novo quando o player sai de cima dele."""
         col = self.hitbox_rect.centerx // TILE
         row = self.hitbox_rect.centery // TILE
-        em_cima = (0 <= row < len(mapa_csv) and 0 <= col < len(mapa_csv[row])
-                   and mapa_csv[row][col] == TELEPORTE_ID)
+        em_cima = (0 <= row < len(mundo.mapa) and 0 <= col < len(mundo.mapa[row])
+                   and mundo.mapa[row][col] == TELEPORTE_ID)
 
         if em_cima:
             if not self.acabou_de_teleportar:
@@ -471,13 +532,20 @@ class Camera(pygame.sprite.Group):
         self.offset.y = player.rect.centery  - ALTURA  // 2
 
         # trava a câmera nas bordas pra não mostrar o vazio fora do mapa
-        self.offset.x = max(0, min(self.offset.x, MAP_W - LARGURA))
-        self.offset.y = max(0, min(self.offset.y, MAP_H - ALTURA))
+        self.offset.x = max(0, min(self.offset.x, mundo.largura - LARGURA))
+        self.offset.y = max(0, min(self.offset.y, mundo.altura  - ALTURA))
 
-        desenhar_mapa(screen, mapa_csv, self.offset)
+        # camadas debaixo do personagem: chao + parede
+        desenhar_mapa(screen, mundo.chao, mundo.mapa, self.offset,
+                      mundo.ts_chao, mundo.ts_principal)
 
+        # personagem e outros sprites
         for sprite in all_sprites_group:
             screen.blit(sprite.image, sprite.rect.topleft - self.offset)
+
+        # objetos (plantas) POR CIMA do personagem: ele passa por tras delas
+        if mundo.obj is not None:
+            desenhar_camada(screen, mundo.obj, self.offset, mundo.ts_obj)
 
 
 player      = Player()
@@ -498,7 +566,7 @@ while True:
     camera.custom_draw()
 
     # DEBUG — descomenta pra ver as hitboxes
-    # for box in hitboxes:
+    # for box in mundo.hitboxes:
     #     pos = (box.x - camera.offset.x, box.y - camera.offset.y, box.width, box.height)
     #     pygame.draw.rect(screen, (255, 0, 0), pos, 1)
 
