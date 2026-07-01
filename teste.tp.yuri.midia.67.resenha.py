@@ -79,21 +79,6 @@ def pegar_tile(tile_id, tileset=None, colunas=None, tile_px=TILE_SIZE):
     return pygame.transform.scale(tile, (TILE, TILE))   # escala pro tamanho da tela
 
 
-def gerar_mapa_plano(colunas, linhas, piso=MAPA2_PISO):
-    """Carrega o MAPA 3 (tres camadas: chao por baixo, parede no meio e objetos
-    por cima) e devolve (chao, parede, obj). Se os arquivos do mapa 3 nao
-    existirem, cai no mapa plano antigo, devolvendo (None, plano, None).
-    A camada de objetos (mapa 3_obj.csv) eh opcional: se faltar, vem None."""
-    chao_path   = os.path.join(BASE_DIR, "mapa 3_chao.csv")
-    parede_path = os.path.join(BASE_DIR, "mapa 3_parede.csv")
-    obj_path    = os.path.join(BASE_DIR, "mapa 3_obj.csv")
-    if os.path.exists(chao_path) and os.path.exists(parede_path):
-        obj = carregar_csv(obj_path) if os.path.exists(obj_path) else None
-        return carregar_csv(chao_path), carregar_csv(parede_path), obj
-    plano = [[piso for _ in range(colunas)] for _ in range(linhas)]
-    return None, plano, None
-
-
 def achar_tile(mapa, tile_id):
     """Primeira posicao (col, linha) onde aparece tile_id, ou None."""
     for y, linha in enumerate(mapa):
@@ -165,13 +150,16 @@ if achar_tile(mapa_csv, TELEPORTE_ID) is None:
     if pos:
         mapa_csv[pos[1]][pos[0]] = TELEPORTE_ID
 
-# Segundo mapa: o MAPA 3 (chao + parede), com 1 portal no meio.
-# 'mapa2' eh a camada de PAREDE (colisao + desenhada por cima); 'chao2' eh o
-# piso desenhado por baixo. No mapa 3 o vazio andavel eh -1; no fallback plano
-# o chao usa os tiles do conjunto WALKABLE.
-chao2, mapa2, obj2 = gerar_mapa_plano(MAPA2_COLUNAS, MAPA2_LINHAS, MAPA2_PISO)
+# Segundo mapa: o MAPA 3 (o que voce criou), em tres camadas de CSV:
+# chao por baixo, parede no meio (colisao + desenhada por cima) e objetos por cima.
+# 'mapa2' eh a camada de PAREDE; 'chao2' eh o piso; 'obj2' os objetos (opcional).
+# O vazio andavel do mapa 3 eh -1; o resto vira parede.
+chao2 = carregar_csv(os.path.join(BASE_DIR, "mapa 3_chao.csv"))
+mapa2 = carregar_csv(os.path.join(BASE_DIR, "mapa 3_parede.csv"))
+obj_path = os.path.join(BASE_DIR, "mapa 3_obj.csv")
+obj2 = carregar_csv(obj_path) if os.path.exists(obj_path) else None
 mapa2[len(mapa2) // 2][len(mapa2[0]) // 2] = TELEPORTE_ID
-WALKABLE2 = {-1, TELEPORTE_ID} if chao2 is not None else WALKABLE
+WALKABLE2 = {-1, TELEPORTE_ID}
 
 PORTAL_SURF = surface_teleporte()   # usado pelo desenhar_mapa
 
@@ -337,6 +325,10 @@ class Player(pygame.sprite.Sprite):
 
         self.acabou_de_teleportar = False   # trava p/ nao teleportar em loop
 
+        self.max_health = 3        # vida maxima do personagem principal
+        self.health = self.max_health
+        self.dano_cooldown = 0     # invencibilidade temporaria apos tomar dano
+
     def player_aim(self):
         self.mouse_coords = pygame.mouse.get_pos()
         self.x_change_mouse_player = self.mouse_coords[0] - LARGURA // 2
@@ -478,6 +470,8 @@ class Player(pygame.sprite.Sprite):
         self.player_aim()
         if self.shot_cooldown > 0:
             self.shot_cooldown -= 1
+        if self.dano_cooldown > 0:      # invencibilidade temporaria apos tomar dano
+            self.dano_cooldown -= 1
 
 
 class Bullet(pygame.sprite.Sprite):
@@ -491,6 +485,7 @@ class Bullet(pygame.sprite.Sprite):
         self.x_vel = math.cos(math.radians(angle)) * BULLET_SPEED
         self.y_vel = math.sin(math.radians(angle)) * BULLET_SPEED
         self.spawn_time = pygame.time.get_ticks()
+        self.damage = 1                 # dano que a bala causa no inimigo
 
     def update(self):
         self.x += self.x_vel
@@ -509,6 +504,8 @@ class Enemy(pygame.sprite.Sprite):
         self.position  = pygame.math.Vector2(position)
         self.direction = pygame.math.Vector2()
         self.speed = ENEMY_SPEED
+        self.max_health = 5             # vida maxima do necromante
+        self.health = self.max_health
 
     def hunt_player(self):
         pv = pygame.math.Vector2(player.hitbox_rect.center)
@@ -517,6 +514,11 @@ class Enemy(pygame.sprite.Sprite):
         self.direction = (pv - ev).normalize() if dist > 0 else pygame.math.Vector2()
         self.position += self.direction * self.speed
         self.rect.center = (int(self.position.x), int(self.position.y))
+
+    def levar_dano(self, dano):         # tira vida e morre quando chega a 0
+        self.health -= dano
+        if self.health <= 0:
+            self.kill()
 
     def update(self):
         self.hunt_player()
@@ -548,11 +550,140 @@ class Camera(pygame.sprite.Group):
             desenhar_camada(screen, mundo.obj, self.offset, mundo.ts_obj)
 
 
+def desenhar_barra_vida(surface, x, y, largura, altura, vida, vida_max):
+    """Desenha uma barra de vida: fundo vermelho + parte verde proporcional."""
+    if vida < 0:
+        vida = 0
+    fracao = vida / vida_max
+    # fundo (vida perdida) em vermelho escuro
+    pygame.draw.rect(surface, (90, 20, 20), (x, y, largura, altura))
+    # vida atual em verde
+    pygame.draw.rect(surface, (40, 200, 60), (x, y, int(largura * fracao), altura))
+    # contorno
+    pygame.draw.rect(surface, (15, 15, 15), (x, y, largura, altura), 2)
+
+
 player      = Player()
 camera      = Camera()
 necromancer = Enemy((400, 400))
 
 all_sprites_group.add(player)
+
+ENEMY_DANO_COOLDOWN = 45   
+
+
+# ── TELA DE INICIO 
+def tela_inicio():
+    fonte_titulo = pygame.font.SysFont("arialblack", 96)
+    fonte_botao  = pygame.font.SysFont("arial", 40, bold=True)
+
+    titulo = fonte_titulo.render("THE ADVENTURER", True, (240, 230, 200))
+    titulo_rect = titulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 90))
+
+    texto_botao = fonte_botao.render("Comecar Jogo Novo", True, (255, 255, 255))
+    botao_rect = texto_botao.get_rect(center=(LARGURA // 2, ALTURA // 2 + 80))
+    fundo_botao = botao_rect.inflate(60, 30)   
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if fundo_botao.collidepoint(event.pos):
+                    return
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                return
+
+        mouse = pygame.mouse.get_pos()
+        hover = fundo_botao.collidepoint(mouse)
+
+        screen.fill((20, 18, 30))
+        screen.blit(titulo, titulo_rect)
+        # botao muda de cor ao passar o mouse por cima
+        pygame.draw.rect(screen, (90, 60, 140) if hover else (55, 40, 90), fundo_botao, border_radius=10)
+        pygame.draw.rect(screen, (200, 180, 240), fundo_botao, 3, border_radius=10)
+        screen.blit(texto_botao, botao_rect)
+
+        pygame.display.update()
+        clock.tick(FPS)
+
+
+tela_inicio()
+
+
+# ── TELA DE GAME OVER ──────────────────────────────────────────────────────────
+def reiniciar_jogo():
+    global necromancer
+    for b in bullet_group:      
+        b.kill()
+    for e in enemy_group:       
+        e.kill()
+    mundo.ir_para(0)            
+
+    # reseta o player
+    player.health = player.max_health
+    player.dano_cooldown = 0
+    player.shot_cooldown = 0
+    player.acabou_de_teleportar = False
+    player.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
+    player.hitbox_rect.center = (int(player.pos.x), int(player.pos.y))
+    player.rect.center = player.hitbox_rect.center
+
+    necromancer = Enemy((400, 400))   # recria o necromante
+
+
+def tela_game_over():
+
+    fonte_titulo = pygame.font.SysFont("arialblack", 96)
+    fonte_botao  = pygame.font.SysFont("arial", 40, bold=False)
+
+    titulo = fonte_titulo.render("GAME OVER", True, (230, 60, 60))
+    titulo_rect = titulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 90))
+
+    texto_jogar = fonte_botao.render("Jogar de Novo", True, (255, 255, 255))
+    jogar_rect = texto_jogar.get_rect(center=(LARGURA // 2, ALTURA // 2 + 55))
+    fundo_jogar = jogar_rect.inflate(60, 30)
+
+    texto_sair = fonte_botao.render("Sair", True, (255, 255, 255))
+    sair_rect = texto_sair.get_rect(center=(LARGURA // 2, ALTURA // 2 + 175))
+    fundo_sair = sair_rect.inflate(60, 30)
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if fundo_jogar.collidepoint(event.pos):
+                    return
+                if fundo_sair.collidepoint(event.pos):
+                    pygame.quit()
+                    exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    exit()
+
+        mouse = pygame.mouse.get_pos()
+        hover_jogar = fundo_jogar.collidepoint(mouse)
+        hover_sair  = fundo_sair.collidepoint(mouse)
+
+        screen.fill((20, 10, 10))
+        screen.blit(titulo, titulo_rect)
+        # botao "Jogar de Novo"
+        pygame.draw.rect(screen, (120, 60, 60) if hover_jogar else (80, 40, 40), fundo_jogar, border_radius=10)
+        pygame.draw.rect(screen, (240, 180, 180), fundo_jogar, 3, border_radius=10)
+        screen.blit(texto_jogar, jogar_rect)
+        # botao "Sair"
+        pygame.draw.rect(screen, (120, 60, 60) if hover_sair else (80, 40, 40), fundo_sair, border_radius=10)
+        pygame.draw.rect(screen, (240, 180, 180), fundo_sair, 3, border_radius=10)
+        screen.blit(texto_sair, sair_rect)
+
+        pygame.display.update()
+        clock.tick(FPS)
 
 
 while True:
@@ -563,7 +694,38 @@ while True:
 
     screen.fill((0, 0, 0))
     all_sprites_group.update()
+
+    # bala acerta o necromante -> tira vida dele e a bala some
+    for bullet in bullet_group:
+        for inimigo in pygame.sprite.spritecollide(bullet, enemy_group, False):
+            inimigo.levar_dano(bullet.damage)
+            bullet.kill()
+
+    # necromante encosta no player -> tira 1 de vida 
+    if player.dano_cooldown == 0:
+        for inimigo in enemy_group:
+            if player.hitbox_rect.colliderect(inimigo.rect):
+                player.health -= 1
+                player.dano_cooldown = ENEMY_DANO_COOLDOWN
+                break
+
+    # fim de jogo quando a vida do player zera: mostra o game over.
+    # se o jogador escolher jogar de novo, reinicia e pula o resto do frame.
+    if player.health <= 0:
+        tela_game_over()
+        reiniciar_jogo()
+        continue
+
     camera.custom_draw()
+
+    # barra de vida do PLAYER: fixa no canto superior esquerdo da tela (HUD)
+    desenhar_barra_vida(screen, 20, 20, 200, 22, player.health, player.max_health)
+
+    # barra de vida de cada INIMIGO: flutua logo acima do sprite, acompanhando o mapa
+    for inimigo in enemy_group:
+        bx = inimigo.rect.centerx - camera.offset.x - 25
+        by = inimigo.rect.top     - camera.offset.y - 12
+        desenhar_barra_vida(screen, bx, by, 50, 7, inimigo.health, inimigo.max_health)
 
     # DEBUG — descomenta pra ver as hitboxes
     # for box in mundo.hitboxes:
