@@ -233,56 +233,50 @@ def desenhar_mapa(surface, chao, mapa, offset, ts_chao, ts_principal):
 
 # Animação
 
-IDLE_FRAMES = 15
-WALK_FRAMES = 15
-ATTACK_FRAMES = 15
+IDLE_FRAMES = 16
+WALK_FRAMES = 16
+ATTACK_FRAMES = 16
 ANIM_SPEED = 0.15
 
-# cada linha da sheet é uma direção. este mapa diz qual linha usar pra cada
-# setor do ângulo do mouse (0=direita, 1=baixo-direita, 2=baixo, 3=baixo-esquerda,
-# 4=esquerda, 5=cima-esquerda, 6=cima, 7=cima-direita)
-LINHA_POR_SETOR = [0, 1, 2, 3, 4, 5, 6, 7]
-
-def carregar_animacao(nome_arquivo, num_frames, escala, colunas=15, linhas=8, fallback="hero.png"):
-    """Recorta a sheet inteira e devolve uma lista com as 8 direções,
-    cada uma com seus frames."""
+def carregar_animacao(nome_arquivo, num_frames, escala, colunas=1, linhas=1, fallback="hero.png"):
+    """Recorta uma sprite sheet em grade (colunas x linhas), lendo os frames
+    da esquerda pra direita e de cima pra baixo."""
     caminho = os.path.join(BASE_DIR, nome_arquivo)
 
     if os.path.exists(caminho):
         sheet = pygame.image.load(caminho).convert_alpha()
-        fw = sheet.get_width() // colunas
-        fh = sheet.get_height() // linhas
-        direcoes = []
+        largura_frame = sheet.get_width() // colunas
+        altura_frame  = sheet.get_height() // linhas
+        frames = []
+        contagem = 0
         for linha in range(linhas):
-            frames = []
-            for coluna in range(num_frames):
-                frame = pygame.Surface((fw, fh), pygame.SRCALPHA)
-                frame.blit(sheet, (0, 0), pygame.Rect(coluna * fw, linha * fh, fw, fh))
+            for coluna in range(colunas):
+                if contagem >= num_frames:
+                    break
+                frame = pygame.Surface((largura_frame, altura_frame), pygame.SRCALPHA)
+                frame.blit(sheet, (0, 0),
+                           pygame.Rect(coluna * largura_frame, linha * altura_frame,
+                                       largura_frame, altura_frame))
                 frames.append(pygame.transform.rotozoom(frame, 0, escala))
-            direcoes.append(frames)
-        return direcoes
+                contagem += 1
+        return frames
 
-    # sem sprite sheet, usa uma imagem só em todas as direções
+    # sem sprite sheet ainda, usa uma imagem só
     img = pygame.image.load(os.path.join(BASE_DIR, fallback)).convert_alpha()
-    frame = pygame.transform.rotozoom(img, 0, escala)
-    return [[frame] for _ in range(8)]
+    return [pygame.transform.rotozoom(img, 0, escala)]
 
 def normalizar_frames(animations):
     # mesmo tamanho de canvas em todo frame, senão o boneco pula ao trocar de animação
-    todos = [f for direcoes in animations.values() for frames in direcoes for f in frames]
-    maxw = max(f.get_width()  for f in todos)
-    maxh = max(f.get_height() for f in todos)
-    for estado, direcoes in animations.items():
-        novas_direcoes = []
-        for frames in direcoes:
-            novos = []
-            for f in frames:
-                canvas = pygame.Surface((maxw, maxh), pygame.SRCALPHA)
-                canvas.blit(f, ((maxw - f.get_width())  // 2,
-                                (maxh - f.get_height()) // 2))
-                novos.append(canvas)
-            novas_direcoes.append(novos)
-        animations[estado] = novas_direcoes
+    maxw = max(f.get_width()  for frames in animations.values() for f in frames)
+    maxh = max(f.get_height() for frames in animations.values() for f in frames)
+    for estado, frames in animations.items():
+        novos = []
+        for f in frames:
+            canvas = pygame.Surface((maxw, maxh), pygame.SRCALPHA)
+            canvas.blit(f, ((maxw - f.get_width())  // 2,
+                            (maxh - f.get_height()) // 2))
+            novos.append(canvas)
+        animations[estado] = novos
     return animations
 
 # Sprites
@@ -298,9 +292,9 @@ class Player(pygame.sprite.Sprite):
         super().__init__()
 
         self.animations = {
-            'idle':   carregar_animacao('Idle_Shadowless.png',      IDLE_FRAMES,   PLAYER_SIZE),
-            'walk':   carregar_animacao('Walk_Shadowless.png',      WALK_FRAMES,   PLAYER_SIZE),
-            'attack': carregar_animacao('CastSpell_Shadowless.png', ATTACK_FRAMES, PLAYER_SIZE),
+            'idle':   carregar_animacao('Idle_Shadowless.png',      IDLE_FRAMES,   PLAYER_SIZE, colunas=4, linhas=4),
+            'walk':   carregar_animacao('Walk_Shadowless.png',      WALK_FRAMES,   PLAYER_SIZE, colunas=4, linhas=4),
+            'attack': carregar_animacao('CastSpell_Shadowless.png', ATTACK_FRAMES, PLAYER_SIZE, colunas=4, linhas=4),
         }
         self.animations = normalizar_frames(self.animations)
 
@@ -308,9 +302,9 @@ class Player(pygame.sprite.Sprite):
         self.frame_index  = 0.0
         self.attacking    = False
         self.angle        = 0
-        self.direcao      = 2      # linha da sheet (2 = olhando pra baixo/frente)
+        self.facing_left  = False
 
-        self.base_player_image = self.animations['idle'][self.direcao][0]
+        self.base_player_image = self.animations['idle'][0]
         self.image = self.base_player_image
 
         self.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
@@ -340,11 +334,17 @@ class Player(pygame.sprite.Sprite):
         self.angle = math.degrees(
             math.atan2(self.y_change_mouse_player, self.x_change_mouse_player))
 
-        # divide o círculo em 8 setores e escolhe a linha da sheet certa
-        setor = round(self.angle / 45) % 8
-        self.direcao = LINHA_POR_SETOR[setor]
+        # vira o boneco pro lado do mouse
+        if self.x_change_mouse_player < -1:
+            self.facing_left = True
+        elif self.x_change_mouse_player > 1:
+            self.facing_left = False
 
-        self.image = self.base_player_image
+        if self.facing_left:
+            self.image = pygame.transform.flip(self.base_player_image, True, False)
+        else:
+            self.image = self.base_player_image
+
         self.rect = self.image.get_rect(center=self.hitbox_rect.center)
 
     def user_input(self):
@@ -391,15 +391,9 @@ class Player(pygame.sprite.Sprite):
             self.frame_index = 0.0
 
     def animate(self):
-        animation = self.animations[self.state][self.direcao]
+        animation = self.animations[self.state]
 
-        if self.state == 'attack':
-            # a magia inteira dura exatamente um cooldown de tiro: assim ela
-            # termina certinho antes do próximo tiro, sem cortar no meio
-            velocidade = len(animation) / max(SHOOT_COOLDOWN, 1)
-        else:
-            velocidade = ANIM_SPEED
-        self.frame_index += velocidade
+        self.frame_index += ANIM_SPEED
         if self.frame_index >= len(animation):
             self.frame_index = 0.0
             if self.state == 'attack':
@@ -520,37 +514,40 @@ AVISO_DURACAO          = 800
 SPAWN_GRACA            = 4000
 
 
-# Sprites do mapa 3: o ceifador virou o inimigo comum e o anjo é o boss
-BOSS_ESCALA     = 2.5    # frames do anjo têm 64px
-MINION_ESCALA   = 1.1    # frames do ceifador têm 100px
-BOSS_ANIM_SPEED = 0.2
-BOSS_WINDUP     = 500    # ms parado "carregando" antes de soltar o tiro
+def surface_boss_placeholder():
+    """Boss anjo sombrio, desenhado direto no Pygame (sem depender de imagem)."""
+    largura, altura = 100, 130
+    surf = pygame.Surface((largura, altura), pygame.SRCALPHA)
+    cx = largura // 2
+
+    # asas
+    asa_esq = [(cx, 40), (cx-45, 20), (cx-35, 45), (cx-50, 55), (cx-30, 65), (cx-40, 80), (cx-15, 70)]
+    asa_dir = [(cx, 40), (cx+45, 20), (cx+35, 45), (cx+50, 55), (cx+30, 65), (cx+40, 80), (cx+15, 70)]
+    pygame.draw.polygon(surf, (43, 34, 51), asa_esq)
+    pygame.draw.polygon(surf, (43, 34, 51), asa_dir)
+
+    # veste
+    veste = [(cx, 45), (cx-25, 75), (cx-32, 125), (cx+32, 125), (cx+25, 75)]
+    pygame.draw.polygon(surf, (28, 22, 38), veste)
+
+    # capuz
+    capuz = [(cx, 15), (cx-20, 20), (cx-16, 45), (cx+16, 45), (cx+20, 20)]
+    pygame.draw.polygon(surf, (36, 27, 48), capuz)
+
+    # cabeça
+    pygame.draw.circle(surf, (232, 217, 200), (cx, 32), 15)
+
+    # halo
+    pygame.draw.ellipse(surf, (201, 168, 255), (cx-17, 8, 34, 10), 3)
+
+    # olhos
+    pygame.draw.circle(surf, (201, 168, 255), (cx-6, 32), 2)
+    pygame.draw.circle(surf, (201, 168, 255), (cx+6, 32), 2)
+
+    return surf
 
 
-def carregar_sheet(nome, colunas, linhas, num_frames, escala):
-    """Fatia uma sheet simples: esquerda pra direita, de cima pra baixo."""
-    caminho = os.path.join(BASE_DIR, nome)
-    sheet = pygame.image.load(caminho).convert_alpha()
-    fw = sheet.get_width() // colunas
-    fh = sheet.get_height() // linhas
-    frames = []
-    for i in range(num_frames):
-        c, r = i % colunas, i // colunas
-        f = pygame.Surface((fw, fh), pygame.SRCALPHA)
-        f.blit(sheet, (0, 0), pygame.Rect(c * fw, r * fh, fw, fh))
-        frames.append(pygame.transform.rotozoom(f, 0, escala))
-    return frames
-
-
-BOSS_FRAMES   = carregar_sheet('AngelsSpriteSheetNew.png', 8, 1, 8, BOSS_ESCALA)
-MINION_FRAMES = carregar_sheet('boss_idle.png', 5, 1, 4, MINION_ESCALA)
-
-# inimigo do mapa 1: o morcego (4 frames de voo, 64x64)
-BAT_ESCALA       = 1.2
-BAT_OLHA_DIREITA = True    # se ele voar de costas pro player, troque pra False
-FRACO_FRAMES = carregar_sheet('Bat_Fly.png', 4, 1, 4, BAT_ESCALA)
-if not BAT_OLHA_DIREITA:
-    FRACO_FRAMES = [pygame.transform.flip(f, True, False) for f in FRACO_FRAMES]
+BOSS_SURF = surface_boss_placeholder()
 
 # tiro do boss
 BOSS_TIRO_INTERVALO  = 2000
@@ -592,19 +589,11 @@ def posicao_spawn(mapa_indice, dist_min_tiles=6):
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, position, mapa=0, vida=5, dano=1, velocidade=ENEMY_SPEED,
-                 escala=2, imagem='0.png', ataque_delay=45, moedas=1,
-                 frames=None, anim_speed=0.15, virar=True):
+                 escala=2, imagem='0.png', ataque_delay=45, moedas=1):
         super().__init__(enemy_group, all_sprites_group)
         self.mapa = mapa
-        self.frames = frames          # com frames o inimigo fica animado
-        self.frame_index = 0.0
-        self.anim_speed = anim_speed
-        self.virar = virar            # espelha pro lado do player?
-        if frames:
-            self.image = frames[0]
-        else:
-            self.image = pygame.transform.rotozoom(
-                pygame.image.load(imagem).convert_alpha(), 0, escala)
+        self.image = pygame.transform.rotozoom(
+            pygame.image.load(imagem).convert_alpha(), 0, escala)
         self.rect  = self.image.get_rect(center=position)
         self.position  = pygame.math.Vector2(position)
         self.direction = pygame.math.Vector2()
@@ -624,19 +613,6 @@ class Enemy(pygame.sprite.Sprite):
         self.position += self.direction * self.speed
         self.rect.center = (int(self.position.x), int(self.position.y))
 
-    def animar(self):
-        if not self.frames:
-            return
-        self.frame_index += self.anim_speed
-        if self.frame_index >= len(self.frames):
-            self.frame_index = 0.0
-        base = self.frames[int(self.frame_index)]
-        # a arte original olha pra direita: espelha quando o player está à esquerda
-        if self.virar and player.hitbox_rect.centerx < self.position.x:
-            base = pygame.transform.flip(base, True, False)
-        self.image = base
-        self.rect = self.image.get_rect(center=(int(self.position.x), int(self.position.y)))
-
     def levar_dano(self, dano):
         self.health -= dano
         if self.health <= 0:
@@ -646,41 +622,38 @@ class Enemy(pygame.sprite.Sprite):
 
     def update(self):
         self.hunt_player()
-        self.animar()
         if self.ataque_cooldown > 0:
             self.ataque_cooldown -= 1
 
 
 class Boss(Enemy):
-    """Boss do mapa 3: o anjo. Persegue o player flutuando e, na hora de
-    atirar, para um instante (aviso) antes de soltar o projétil."""
+    """Boss do mapa 3, usa BOSS_SURF (anjo desenhado, sem imagem)."""
     def __init__(self, position, mapa):
-        super().__init__(position, mapa=mapa, vida=BOSS_VIDA, dano=BOSS_DANO,
-                         velocidade=BOSS_SPEED, ataque_delay=BOSS_ATAQUE,
-                         moedas=BOSS_MOEDAS, frames=BOSS_FRAMES,
-                         anim_speed=BOSS_ANIM_SPEED, virar=False)  # o anjo é simétrico
+        pygame.sprite.Sprite.__init__(self, enemy_group, all_sprites_group)
+        self.mapa = mapa
+        self.image = BOSS_SURF
+        self.rect  = self.image.get_rect(center=position)
+        self.position  = pygame.math.Vector2(position)
+        self.direction = pygame.math.Vector2()
+        self.speed = BOSS_SPEED
+        self.max_health = BOSS_VIDA
+        self.health = BOSS_VIDA
+        self.dano = BOSS_DANO
+        self.moedas = BOSS_MOEDAS
+        self.ataque_delay = BOSS_ATAQUE
+        self.ataque_cooldown = 0
         self.ultimo_tiro = pygame.time.get_ticks()
-        self.carregando = False
-        self.inicio_carga = 0
+
+    def atirar(self):
+        EnemyBullet(self.rect.centerx, self.rect.centery,
+                    player.hitbox_rect.center, BOSS_TIRO_DANO)
 
     def update(self):
+        super().update()
         agora = pygame.time.get_ticks()
-
-        if self.carregando:
-            # parado carregando o tiro: dá tempo do player reagir
-            self.animar()
-            if self.ataque_cooldown > 0:
-                self.ataque_cooldown -= 1
-            if agora - self.inicio_carga >= BOSS_WINDUP:
-                EnemyBullet(self.rect.centerx, self.rect.centery,
-                            player.hitbox_rect.center, BOSS_TIRO_DANO)
-                self.carregando = False
-                self.ultimo_tiro = agora
-        else:
-            super().update()
-            if agora - self.ultimo_tiro >= BOSS_TIRO_INTERVALO:
-                self.carregando = True
-                self.inicio_carga = agora
+        if agora - self.ultimo_tiro >= BOSS_TIRO_INTERVALO:
+            self.atirar()
+            self.ultimo_tiro = agora
 
 
 class EnemyBullet(pygame.sprite.Sprite):
@@ -705,26 +678,25 @@ class EnemyBullet(pygame.sprite.Sprite):
             self.kill()
 
 
-CHAVE_ESCALA = 2.5   # frames de 16x16 -> ~40px na tela
-CHAVE_ANIM_SPEED = 0.2
-CHAVE_FRAMES = carregar_sheet('KeyString.png', 1, 11, 11, CHAVE_ESCALA)
+def surface_chave():
+    """Chave amarela simples."""
+    surf = pygame.Surface((30, 30), pygame.SRCALPHA)
+    pygame.draw.circle(surf, (245, 215, 60), (10, 10), 8)
+    pygame.draw.circle(surf, (120, 90, 10),  (10, 10), 8, 2)
+    pygame.draw.rect(surf, (245, 215, 60), (13, 10, 4, 17))
+    pygame.draw.rect(surf, (245, 215, 60), (17, 21, 6, 4))
+    return surf
+
+
+CHAVE_SURF = surface_chave()
 
 
 class Chave(pygame.sprite.Sprite):
-    """Chave que o 5o inimigo dropa. Fica girando no chão até o player pegar."""
+    """Chave que o 5o inimigo dropa. Libera o portal ao pegar."""
     def __init__(self, position):
         super().__init__(item_group, all_sprites_group)
-        self.frame_index = 0.0
-        self.image = CHAVE_FRAMES[0]
+        self.image = CHAVE_SURF
         self.rect  = self.image.get_rect(center=position)
-
-    def update(self):
-        self.frame_index += CHAVE_ANIM_SPEED
-        if self.frame_index >= len(CHAVE_FRAMES):
-            self.frame_index = 0.0
-        centro = self.rect.center
-        self.image = CHAVE_FRAMES[int(self.frame_index)]
-        self.rect = self.image.get_rect(center=centro)
 
 
 class Camera(pygame.sprite.Group):
@@ -812,18 +784,17 @@ class GerenciadorSpawn:
                 self.agendar(
                     posicao_spawn(0),
                     lambda p: Enemy(p, mapa=0, vida=FRACO_VIDA, dano=FRACO_DANO,
-                                    velocidade=FRACO_SPEED, ataque_delay=FRACO_ATAQUE,
-                                    moedas=FRACO_MOEDAS, frames=FRACO_FRAMES),
+                                    velocidade=FRACO_SPEED, escala=1.3,
+                                    ataque_delay=FRACO_ATAQUE, moedas=FRACO_MOEDAS),
                     TILE // 2)
                 self.ultimo = agora
         elif self.mapa == 1:
-            # depois que o boss aparece, ninguém mais nasce: fica só você e ele
-            if not self.boss_criado and agora - self.ultimo >= SPAWN_MINION_INTERVALO:
+            if agora - self.ultimo >= SPAWN_MINION_INTERVALO:
                 self.agendar(
                     posicao_spawn(1),
                     lambda p: Enemy(p, mapa=1, vida=MIN_VIDA, dano=MIN_DANO,
-                                    velocidade=ENEMY_SPEED, ataque_delay=MIN_ATAQUE,
-                                    moedas=MIN_MOEDAS, frames=MINION_FRAMES),
+                                    velocidade=ENEMY_SPEED, escala=2,
+                                    ataque_delay=MIN_ATAQUE, moedas=MIN_MOEDAS),
                     TILE // 2)
                 self.ultimo = agora
             if not self.boss_criado and agora - self.inicio >= BOSS_DELAY:
@@ -867,7 +838,6 @@ spawner = GerenciadorSpawn()
 ENEMY_DANO_COOLDOWN = 45
 
 fonte_hud = pygame.font.SysFont("arial", 24, bold=True)
-fonte_pequena = pygame.font.SysFont("arial", 18)
 
 
 def tela_inicio():
@@ -953,7 +923,7 @@ def tela_game_over():
                     pygame.quit()
                     exit()
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_r):
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     return
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit()
@@ -976,93 +946,24 @@ def tela_game_over():
         clock.tick(FPS)
 
 
-def tela_vitoria():
-    """Tela de fim de jogo: aparece quando o boss final morre."""
-    fonte_titulo = pygame.font.SysFont("arialblack", 96)
-    fonte_msg    = pygame.font.SysFont("arial", 40, bold=True)
-    fonte_botao  = pygame.font.SysFont("arial", 40, bold=False)
-
-    titulo = fonte_titulo.render("PARABENS", True, (255, 225, 120))
-    titulo_rect = titulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 130))
-
-    msg = fonte_msg.render("Voce conquistou o ceu!", True, (235, 235, 255))
-    msg_rect = msg.get_rect(center=(LARGURA // 2, ALTURA // 2 - 30))
-
-    texto_jogar = fonte_botao.render("Jogar de Novo", True, (255, 255, 255))
-    jogar_rect = texto_jogar.get_rect(center=(LARGURA // 2, ALTURA // 2 + 80))
-    fundo_jogar = jogar_rect.inflate(60, 30)
-
-    texto_sair = fonte_botao.render("Sair", True, (255, 255, 255))
-    sair_rect = texto_sair.get_rect(center=(LARGURA // 2, ALTURA // 2 + 190))
-    fundo_sair = sair_rect.inflate(60, 30)
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if fundo_jogar.collidepoint(event.pos):
-                    return
-                if fundo_sair.collidepoint(event.pos):
-                    pygame.quit()
-                    exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_r):
-                    return
-                if event.key == pygame.K_ESCAPE:
-                    pygame.quit()
-                    exit()
-
-        mouse = pygame.mouse.get_pos()
-        hover_jogar = fundo_jogar.collidepoint(mouse)
-        hover_sair  = fundo_sair.collidepoint(mouse)
-
-        screen.fill((18, 22, 45))
-        screen.blit(titulo, titulo_rect)
-        screen.blit(msg, msg_rect)
-        pygame.draw.rect(screen, (80, 110, 190) if hover_jogar else (50, 70, 130), fundo_jogar, border_radius=10)
-        pygame.draw.rect(screen, (200, 215, 255), fundo_jogar, 3, border_radius=10)
-        screen.blit(texto_jogar, jogar_rect)
-        pygame.draw.rect(screen, (80, 110, 190) if hover_sair else (50, 70, 130), fundo_sair, border_radius=10)
-        pygame.draw.rect(screen, (200, 215, 255), fundo_sair, 3, border_radius=10)
-        screen.blit(texto_sair, sair_rect)
-
-        pygame.display.update()
-        clock.tick(FPS)
-
-
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
             exit()
-        # R reinicia o jogo a qualquer momento
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-            reiniciar_jogo()
 
     screen.fill((0, 0, 0))
     all_sprites_group.update()
     spawner.update()
 
-    # bala acerta inimigo -> tira vida, e se morrer dá moeda e conta o kill.
-    # matar o BOSS não dropa chave: vai direto pra tela de vitória
-    venceu = False
+    # bala acerta inimigo -> tira vida, e se morrer dá moeda e conta o kill
     for bullet in bullet_group:
         for inimigo in pygame.sprite.spritecollide(bullet, enemy_group, False):
             morreu = inimigo.levar_dano(bullet.damage)
             bullet.kill()
             if morreu:
                 player.moedas += inimigo.moedas
-                if isinstance(inimigo, Boss):
-                    venceu = True
-                else:
-                    spawner.registrar_kill(inimigo)
-
-    if venceu:
-        tela_vitoria()
-        reiniciar_jogo()
-        continue
+                spawner.registrar_kill(inimigo)
 
     # player pega a chave -> libera o portal
     for item in item_group:
@@ -1110,10 +1011,6 @@ while True:
     if player.no_portal and not player.tem_chave:
         aviso = fonte_hud.render("Voce precisa da chave pra usar o portal!", True, (255, 120, 120))
         screen.blit(aviso, aviso.get_rect(center=(LARGURA // 2, ALTURA - 60)))
-
-    # dica fixa no canto inferior direito
-    dica = fonte_pequena.render("R reinicia o jogo", True, (220, 220, 220))
-    screen.blit(dica, (LARGURA - dica.get_width() - 14, ALTURA - dica.get_height() - 10))
 
     # barra de vida flutuando acima de cada inimigo
     for inimigo in enemy_group:
