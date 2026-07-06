@@ -561,4 +561,4 @@ while True:
     #     pygame.draw.rect(screen, (255, 0, 0), pos, 1)
 
     pygame.display.update()
-    clock.tick(FPS)
+    clock.tick(FPS) 
