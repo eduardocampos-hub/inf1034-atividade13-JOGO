@@ -552,6 +552,21 @@ FRACO_FRAMES = carregar_sheet('Bat_Fly.png', 4, 1, 4, BAT_ESCALA)
 if not BAT_OLHA_DIREITA:
     FRACO_FRAMES = [pygame.transform.flip(f, True, False) for f in FRACO_FRAMES]
 
+# animacoes de ATAQUE dos inimigos comuns (o boss usa outra logica)
+# boss_attack.png: grade 6x3 de 100px, 13 frames usados (ceifador/minion do mapa 3)
+MINION_ATTACK_FRAMES = carregar_sheet('boss_attack.png', 6, 3, 13, MINION_ESCALA)
+# Bat_Attack.png: grade 4x2 de 64px, 7 frames usados (morcego do mapa 1)
+BAT_ATTACK_FRAMES = carregar_sheet('Bat_Attack.png', 4, 2, 7, BAT_ESCALA)
+if not BAT_OLHA_DIREITA:
+    BAT_ATTACK_FRAMES = [pygame.transform.flip(f, True, False) for f in BAT_ATTACK_FRAMES]
+
+# distancia (px do centro) em que o inimigo PARA de avancar pra nao subir em cima
+# do player -- e tambem o alcance do ataque corpo-a-corpo
+FRACO_ALCANCE = 46
+MIN_ALCANCE   = 58
+BOSS_ALCANCE  = 70
+ATAQUE_MARGEM = 8       # folga alem do alcance pra o ataque disparar sem "engasgar"
+
 # tiro do boss
 BOSS_TIRO_INTERVALO  = 2000
 BOSS_TIRO_DANO       = 3
@@ -593,13 +608,19 @@ def posicao_spawn(mapa_indice, dist_min_tiles=6):
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, position, mapa=0, vida=5, dano=1, velocidade=ENEMY_SPEED,
                  escala=2, imagem='0.png', ataque_delay=45, moedas=1,
-                 frames=None, anim_speed=0.15, virar=True):
+                 frames=None, anim_speed=0.15, virar=True,
+                 frames_attack=None, attack_speed=0.35, alcance=44):
         super().__init__(enemy_group, all_sprites_group)
         self.mapa = mapa
         self.frames = frames          # com frames o inimigo fica animado
         self.frame_index = 0.0
         self.anim_speed = anim_speed
         self.virar = virar            # espelha pro lado do player?
+        self.frames_attack = frames_attack   # frames da animacao de ataque (ou None)
+        self.attack_speed = attack_speed
+        self.attack_index = 0.0
+        self.atacando = False         # esta tocando a animacao de ataque agora?
+        self.alcance = alcance        # para de andar/ataca a esta distancia do player
         if frames:
             self.image = frames[0]
         else:
@@ -619,18 +640,38 @@ class Enemy(pygame.sprite.Sprite):
     def hunt_player(self):
         pv = pygame.math.Vector2(player.hitbox_rect.center)
         ev = pygame.math.Vector2(self.rect.center)
-        dist = (pv - ev).magnitude()
-        self.direction = (pv - ev).normalize() if dist > 0 else pygame.math.Vector2()
-        self.position += self.direction * self.speed
-        self.rect.center = (int(self.position.x), int(self.position.y))
+        delta = pv - ev
+        dist = delta.magnitude()
+        # so avanca ate 'alcance': assim ele encosta pra atacar, mas nao sobe em cima
+        if dist > self.alcance:
+            passo = min(self.speed, dist - self.alcance)   # nao ultrapassa o ponto de parada
+            self.direction = delta.normalize()
+            self.position += self.direction * passo
+            self.rect.center = (int(self.position.x), int(self.position.y))
+
+    def atacar(self):
+        """Dispara a animacao de ataque (se o inimigo tiver frames de ataque)."""
+        if self.frames_attack:
+            self.atacando = True
+            self.attack_index = 0.0
 
     def animar(self):
-        if not self.frames:
+        # escolhe entre os frames de ataque (uma vez) e os frames normais (em loop)
+        if self.atacando and self.frames_attack:
+            self.attack_index += self.attack_speed
+            if self.attack_index >= len(self.frames_attack):
+                self.atacando = False
+                self.frame_index = 0.0
+                base = self.frames[0] if self.frames else self.image
+            else:
+                base = self.frames_attack[int(self.attack_index)]
+        elif self.frames:
+            self.frame_index += self.anim_speed
+            if self.frame_index >= len(self.frames):
+                self.frame_index = 0.0
+            base = self.frames[int(self.frame_index)]
+        else:
             return
-        self.frame_index += self.anim_speed
-        if self.frame_index >= len(self.frames):
-            self.frame_index = 0.0
-        base = self.frames[int(self.frame_index)]
         # a arte original olha pra direita: espelha quando o player está à esquerda
         if self.virar and player.hitbox_rect.centerx < self.position.x:
             base = pygame.transform.flip(base, True, False)
@@ -645,7 +686,8 @@ class Enemy(pygame.sprite.Sprite):
         return False
 
     def update(self):
-        self.hunt_player()
+        if not self.atacando:      # fica parado enquanto ataca (nao desliza no golpe)
+            self.hunt_player()
         self.animar()
         if self.ataque_cooldown > 0:
             self.ataque_cooldown -= 1
@@ -658,7 +700,8 @@ class Boss(Enemy):
         super().__init__(position, mapa=mapa, vida=BOSS_VIDA, dano=BOSS_DANO,
                          velocidade=BOSS_SPEED, ataque_delay=BOSS_ATAQUE,
                          moedas=BOSS_MOEDAS, frames=BOSS_FRAMES,
-                         anim_speed=BOSS_ANIM_SPEED, virar=False)  # o anjo é simétrico
+                         anim_speed=BOSS_ANIM_SPEED, virar=False,   # o anjo é simétrico
+                         alcance=BOSS_ALCANCE)
         self.ultimo_tiro = pygame.time.get_ticks()
         self.carregando = False
         self.inicio_carga = 0
@@ -813,7 +856,8 @@ class GerenciadorSpawn:
                     posicao_spawn(0),
                     lambda p: Enemy(p, mapa=0, vida=FRACO_VIDA, dano=FRACO_DANO,
                                     velocidade=FRACO_SPEED, ataque_delay=FRACO_ATAQUE,
-                                    moedas=FRACO_MOEDAS, frames=FRACO_FRAMES),
+                                    moedas=FRACO_MOEDAS, frames=FRACO_FRAMES,
+                                    frames_attack=BAT_ATTACK_FRAMES, alcance=FRACO_ALCANCE),
                     TILE // 2)
                 self.ultimo = agora
         elif self.mapa == 1:
@@ -823,7 +867,8 @@ class GerenciadorSpawn:
                     posicao_spawn(1),
                     lambda p: Enemy(p, mapa=1, vida=MIN_VIDA, dano=MIN_DANO,
                                     velocidade=ENEMY_SPEED, ataque_delay=MIN_ATAQUE,
-                                    moedas=MIN_MOEDAS, frames=MINION_FRAMES),
+                                    moedas=MIN_MOEDAS, frames=MINION_FRAMES,
+                                    frames_attack=MINION_ATTACK_FRAMES, alcance=MIN_ALCANCE),
                     TILE // 2)
                 self.ultimo = agora
             if not self.boss_criado and agora - self.inicio >= BOSS_DELAY:
@@ -1070,14 +1115,18 @@ while True:
             player.tem_chave = True
             item.kill()
 
-    # inimigo encosta no player -> tira vida
-    if player.dano_cooldown == 0:
-        for inimigo in enemy_group:
-            if inimigo.ataque_cooldown == 0 and player.hitbox_rect.colliderect(inimigo.rect):
-                player.health -= inimigo.dano
-                player.dano_cooldown = ENEMY_DANO_COOLDOWN
+    # inimigo chega no alcance do player -> ataca (toca a animacao) e tira vida.
+    # usa distancia (nao colisao de rect) porque os sprites tem muito espaco vazio.
+    centro_player = pygame.math.Vector2(player.hitbox_rect.center)
+    for inimigo in enemy_group:
+        if inimigo.ataque_cooldown == 0:
+            dist = (centro_player - pygame.math.Vector2(inimigo.rect.center)).magnitude()
+            if dist <= inimigo.alcance + ATAQUE_MARGEM:
+                inimigo.atacar()                          # dispara a animacao de ataque
                 inimigo.ataque_cooldown = inimigo.ataque_delay
-                break
+                if player.dano_cooldown == 0:             # so tira vida fora da invencibilidade
+                    player.health -= inimigo.dano
+                    player.dano_cooldown = ENEMY_DANO_COOLDOWN
 
     # tiro do boss acerta o player
     for tiro in enemy_bullet_group:
