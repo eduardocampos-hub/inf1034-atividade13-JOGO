@@ -14,23 +14,19 @@ clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Mapa
 
-TILE_SIZE = 16                   # tamanho do tile na imagem
-TILE = TILE_SIZE * TILE_SCALE    # tamanho do tile na tela
+TILE_SIZE = 16
+TILE = TILE_SIZE * TILE_SCALE
 
-# Teleporte / segundo mapa
-TELEPORTE_ID = 99            # tile que funciona como portal (existe nos dois mapas)
-TELEPORTE_MAPA1_POS = None    # (col, linha) fixa, ou None pra calcular pelo canto
+TELEPORTE_ID = 99
+TELEPORTE_MAPA1_POS = None
 TELEPORTE_MAPA1_CANTO = "superior-esquerdo"
 MAPA2_COLUNAS, MAPA2_LINHAS = 30, 20
 MAPA2_PISO = 18
 
-# tiles onde dá pra pisar; o resto é parede
 WALKABLE = {18, 27, 69, 70, 71, TELEPORTE_ID}
 
 def carregar_tileset(nome, tile_px=TILE_SIZE):
-    """Carrega um tileset. Procura na pasta do jogo e, se não achar, uma pasta acima."""
     for base in (BASE_DIR, os.path.dirname(BASE_DIR)):
         caminho = os.path.join(base, nome)
         if os.path.exists(caminho):
@@ -38,7 +34,6 @@ def carregar_tileset(nome, tile_px=TILE_SIZE):
             return img, img.get_width() // tile_px, tile_px
     raise FileNotFoundError(nome)
 
-# mapa 1 usa um tileset só (16px). mapa 3 usa um pra cada camada (32px)
 TS_MAPA1 = carregar_tileset("tileset.png")
 TS_GRASS = carregar_tileset("TX Tileset Grass.png", 32)
 TS_WALL  = carregar_tileset("TX Tileset Wall.png", 32)
@@ -81,7 +76,6 @@ def achar_tile(mapa, tile_id):
 
 
 def celulas_alcancaveis(mapa, col, row):
-    """Todas as células andáveis a partir de (col, row)."""
     rows = len(mapa)
     if not (0 <= row < rows and 0 <= col < len(mapa[row]) and mapa[row][col] in WALKABLE):
         return set()
@@ -99,7 +93,6 @@ def celulas_alcancaveis(mapa, col, row):
 
 
 def posicao_portal_canto(mapa, spawn_col, spawn_row, canto):
-    """Acha o tile andável mais perto do canto pedido, sem ficar preso atrás de parede."""
     rows = len(mapa)
     cols = max(len(l) for l in mapa)
     cantos = {
@@ -117,7 +110,6 @@ def posicao_portal_canto(mapa, spawn_col, spawn_row, canto):
 
 
 def surface_teleporte():
-    """Desenho do portal, pra não depender de imagem."""
     surf = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
     centro = (TILE // 2, TILE // 2)
     pygame.draw.circle(surf, (60, 20, 90),    centro, TILE // 2)
@@ -126,10 +118,8 @@ def surface_teleporte():
     return surf
 
 
-# Carrega os dois mapas
 mapa_csv = carregar_csv(os.path.join(BASE_DIR, "mapa 1.csv"))
 
-# se o CSV não tiver o portal, gente coloca um
 start_col = int(PLAYER_START_X // TILE)
 start_row = int(PLAYER_START_Y // TILE)
 if achar_tile(mapa_csv, TELEPORTE_ID) is None:
@@ -140,7 +130,6 @@ if achar_tile(mapa_csv, TELEPORTE_ID) is None:
     if pos:
         mapa_csv[pos[1]][pos[0]] = TELEPORTE_ID
 
-# mapa 3: chão, parede e objetos em CSVs separados. o vazio andável é -1
 chao2 = carregar_csv(os.path.join(BASE_DIR, "mapa 3_chao.csv"))
 mapa2 = carregar_csv(os.path.join(BASE_DIR, "mapa 3_parede.csv"))
 obj_path = os.path.join(BASE_DIR, "mapa 3_obj.csv")
@@ -150,7 +139,6 @@ WALKABLE2 = {-1, TELEPORTE_ID}
 
 PORTAL_SURF = surface_teleporte()
 
-# tudo que muda de mapa fica em listas (índice = qual mapa)
 mapas            = [mapa_csv, mapa2]
 chaos            = [None, chao2]
 objs             = [None, obj2]
@@ -174,13 +162,10 @@ def gerar_hitboxes(mapa, walkable):
     return hitboxes
 
 
-# objetos são só visuais, não colidem
 hitboxes_mapas = [gerar_hitboxes(m, w) for m, w in zip(mapas, walkables_mapas)]
 
 
 class Mundo:
-    """Guarda o mapa ativo (colisão, chão, tilesets, tamanho). Trocar de mapa
-    é só mexer nos atributos daqui."""
     def __init__(self, indice=0):
         self.ir_para(indice)
 
@@ -226,26 +211,19 @@ def desenhar_camada(surface, mapa, offset, ts):
 
 
 def desenhar_mapa(surface, chao, mapa, offset, ts_chao, ts_principal):
-    # chão primeiro, parede por cima. objetos são desenhados depois, na câmera
     if chao is not None:
         desenhar_camada(surface, chao, offset, ts_chao)
     desenhar_camada(surface, mapa, offset, ts_principal)
 
-# Animação
 
 IDLE_FRAMES = 15
 WALK_FRAMES = 15
 ATTACK_FRAMES = 15
 ANIM_SPEED = 0.15
 
-# cada linha da sheet é uma direção. este mapa diz qual linha usar pra cada
-# setor do ângulo do mouse (0=direita, 1=baixo-direita, 2=baixo, 3=baixo-esquerda,
-# 4=esquerda, 5=cima-esquerda, 6=cima, 7=cima-direita)
 LINHA_POR_SETOR = [0, 1, 2, 3, 4, 5, 6, 7]
 
 def carregar_animacao(nome_arquivo, num_frames, escala, colunas=15, linhas=8, fallback="hero.png"):
-    """Recorta a sheet inteira e devolve uma lista com as 8 direções,
-    cada uma com seus frames."""
     caminho = os.path.join(BASE_DIR, nome_arquivo)
 
     if os.path.exists(caminho):
@@ -262,13 +240,11 @@ def carregar_animacao(nome_arquivo, num_frames, escala, colunas=15, linhas=8, fa
             direcoes.append(frames)
         return direcoes
 
-    # sem sprite sheet, usa uma imagem só em todas as direções
     img = pygame.image.load(os.path.join(BASE_DIR, fallback)).convert_alpha()
     frame = pygame.transform.rotozoom(img, 0, escala)
     return [[frame] for _ in range(8)]
 
 def normalizar_frames(animations):
-    # mesmo tamanho de canvas em todo frame, senão o boneco pula ao trocar de animação
     todos = [f for direcoes in animations.values() for frames in direcoes for f in frames]
     maxw = max(f.get_width()  for f in todos)
     maxh = max(f.get_height() for f in todos)
@@ -285,7 +261,6 @@ def normalizar_frames(animations):
         animations[estado] = novas_direcoes
     return animations
 
-# Sprites
 
 all_sprites_group  = pygame.sprite.Group()
 bullet_group       = pygame.sprite.Group()
@@ -308,13 +283,13 @@ class Player(pygame.sprite.Sprite):
         self.frame_index  = 0.0
         self.attacking    = False
         self.angle        = 0
-        self.direcao      = 2      # linha da sheet (2 = olhando pra baixo/frente)
+        self.direcao      = 2
 
         self.base_player_image = self.animations['idle'][self.direcao][0]
         self.image = self.base_player_image
 
         self.pos = pygame.math.Vector2(PLAYER_START_X, PLAYER_START_Y)
-        self.hitbox_rect = pygame.Rect(0, 0, 40, 52)   # hitbox menor que o sprite
+        self.hitbox_rect = pygame.Rect(0, 0, 40, 52)
         self.hitbox_rect.center = self.pos
         self.rect = self.hitbox_rect.copy()
 
@@ -340,7 +315,6 @@ class Player(pygame.sprite.Sprite):
         self.angle = math.degrees(
             math.atan2(self.y_change_mouse_player, self.x_change_mouse_player))
 
-        # divide o círculo em 8 setores e escolhe a linha da sheet certa
         setor = round(self.angle / 45) % 8
         self.direcao = LINHA_POR_SETOR[setor]
 
@@ -357,7 +331,6 @@ class Player(pygame.sprite.Sprite):
         if keys[pygame.K_a]: self.velocity_x = -self.speed
         if keys[pygame.K_d]: self.velocity_x =  self.speed
 
-        # normaliza a diagonal
         if self.velocity_x != 0 and self.velocity_y != 0:
             self.velocity_x /= math.sqrt(2)
             self.velocity_y /= math.sqrt(2)
@@ -394,8 +367,6 @@ class Player(pygame.sprite.Sprite):
         animation = self.animations[self.state][self.direcao]
 
         if self.state == 'attack':
-            # a magia inteira dura exatamente um cooldown de tiro: assim ela
-            # termina certinho antes do próximo tiro, sem cortar no meio
             velocidade = len(animation) / max(SHOOT_COOLDOWN, 1)
         else:
             velocidade = ANIM_SPEED
@@ -431,7 +402,6 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = self.hitbox_rect.center
 
     def desencostar_paredes(self):
-        """Depois de teleportar, tira o player de dentro de qualquer parede."""
         for box in mundo.hitboxes:
             if self.hitbox_rect.colliderect(box):
                 dx_esq   = box.right - self.hitbox_rect.left
@@ -448,7 +418,6 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = self.hitbox_rect.center
 
     def checar_teleporte(self):
-        """Se o player estiver em cima do portal, troca de mapa (com a chave)."""
         col = self.hitbox_rect.centerx // TILE
         row = self.hitbox_rect.centery // TILE
         em_cima = (0 <= row < len(mundo.mapa) and 0 <= col < len(mundo.mapa[row])
@@ -496,19 +465,17 @@ class Bullet(pygame.sprite.Sprite):
             self.kill()
 
 
-# Inimigos: stats e spawn. todos atravessam parede e caçam o player em linha reta
 NECRO_POS = (400, 400)
 NEC_VIDA,   NEC_DANO,   NEC_ATAQUE   = 5,  1, 45
 FRACO_VIDA, FRACO_DANO, FRACO_ATAQUE = 2,  1, 90
 MIN_VIDA,   MIN_DANO,   MIN_ATAQUE   = 4,  1, 55
-BOSS_VIDA,  BOSS_DANO,  BOSS_ATAQUE  = 40, 1, 40   # boss é esponja de bala
+BOSS_VIDA,  BOSS_DANO,  BOSS_ATAQUE  = 40, 1, 40
 
 FRACO_SPEED = 3
 BOSS_SPEED  = 2
 
 FRACO_MOEDAS, MIN_MOEDAS, BOSS_MOEDAS = 1, 2, 10
 
-# matar N inimigos dropa a chave, que libera o portal
 KILLS_PARA_CHAVE  = 5
 COOLDOWN_POS_META = 6000
 MAX_VIVOS         = 4
@@ -520,15 +487,13 @@ AVISO_DURACAO          = 800
 SPAWN_GRACA            = 4000
 
 
-# Sprites do mapa 3: o ceifador virou o inimigo comum e o anjo é o boss
-BOSS_ESCALA     = 2.5    # frames do anjo têm 64px
-MINION_ESCALA   = 1.1    # frames do ceifador têm 100px
+BOSS_ESCALA     = 2.5
+MINION_ESCALA   = 1.1
 BOSS_ANIM_SPEED = 0.2
-BOSS_WINDUP     = 500    # ms parado "carregando" antes de soltar o tiro
+BOSS_WINDUP     = 500
 
 
 def carregar_sheet(nome, colunas, linhas, num_frames, escala):
-    """Fatia uma sheet simples: esquerda pra direita, de cima pra baixo."""
     caminho = os.path.join(BASE_DIR, nome)
     sheet = pygame.image.load(caminho).convert_alpha()
     fw = sheet.get_width() // colunas
@@ -545,29 +510,22 @@ def carregar_sheet(nome, colunas, linhas, num_frames, escala):
 BOSS_FRAMES   = carregar_sheet('AngelsSpriteSheetNew.png', 8, 1, 8, BOSS_ESCALA)
 MINION_FRAMES = carregar_sheet('boss_idle.png', 5, 1, 4, MINION_ESCALA)
 
-# inimigo do mapa 1: o morcego (4 frames de voo, 64x64)
 BAT_ESCALA       = 1.2
-BAT_OLHA_DIREITA = True    # se ele voar de costas pro player, troque pra False
+BAT_OLHA_DIREITA = True
 FRACO_FRAMES = carregar_sheet('Bat_Fly.png', 4, 1, 4, BAT_ESCALA)
 if not BAT_OLHA_DIREITA:
     FRACO_FRAMES = [pygame.transform.flip(f, True, False) for f in FRACO_FRAMES]
 
-# animacoes de ATAQUE dos inimigos comuns (o boss usa outra logica)
-# boss_attack.png: grade 6x3 de 100px, 13 frames usados (ceifador/minion do mapa 3)
 MINION_ATTACK_FRAMES = carregar_sheet('boss_attack.png', 6, 3, 13, MINION_ESCALA)
-# Bat_Attack.png: grade 4x2 de 64px, 7 frames usados (morcego do mapa 1)
 BAT_ATTACK_FRAMES = carregar_sheet('Bat_Attack.png', 4, 2, 7, BAT_ESCALA)
 if not BAT_OLHA_DIREITA:
     BAT_ATTACK_FRAMES = [pygame.transform.flip(f, True, False) for f in BAT_ATTACK_FRAMES]
 
-# distancia (px do centro) em que o inimigo PARA de avancar pra nao subir em cima
-# do player -- e tambem o alcance do ataque corpo-a-corpo
 FRACO_ALCANCE = 46
 MIN_ALCANCE   = 58
 BOSS_ALCANCE  = 70
-ATAQUE_MARGEM = 8       # folga alem do alcance pra o ataque disparar sem "engasgar"
+ATAQUE_MARGEM = 8
 
-# tiro do boss
 BOSS_TIRO_INTERVALO  = 2000
 BOSS_TIRO_DANO       = 3
 BOSS_BULLET_SPEED    = 7
@@ -575,7 +533,6 @@ BOSS_BULLET_LIFETIME = 4000
 
 
 def surface_boss_bullet():
-    """Tiro do boss: bola laranja."""
     r = 14
     surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
     pygame.draw.circle(surf, (255, 120, 40),  (r, r), r)
@@ -587,7 +544,6 @@ BOSS_BULLET_SURF = surface_boss_bullet()
 
 
 def posicao_spawn(mapa_indice, dist_min_tiles=6):
-    """Sorteia um tile andável, longe do player, pra nascer um inimigo."""
     mapa = mapas[mapa_indice]
     walk = walkables_mapas[mapa_indice]
     pcol = player.hitbox_rect.centerx // TILE
@@ -612,15 +568,15 @@ class Enemy(pygame.sprite.Sprite):
                  frames_attack=None, attack_speed=0.35, alcance=44):
         super().__init__(enemy_group, all_sprites_group)
         self.mapa = mapa
-        self.frames = frames          # com frames o inimigo fica animado
+        self.frames = frames
         self.frame_index = 0.0
         self.anim_speed = anim_speed
-        self.virar = virar            # espelha pro lado do player?
-        self.frames_attack = frames_attack   # frames da animacao de ataque (ou None)
+        self.virar = virar
+        self.frames_attack = frames_attack
         self.attack_speed = attack_speed
         self.attack_index = 0.0
-        self.atacando = False         # esta tocando a animacao de ataque agora?
-        self.alcance = alcance        # para de andar/ataca a esta distancia do player
+        self.atacando = False
+        self.alcance = alcance
         if frames:
             self.image = frames[0]
         else:
@@ -642,21 +598,18 @@ class Enemy(pygame.sprite.Sprite):
         ev = pygame.math.Vector2(self.rect.center)
         delta = pv - ev
         dist = delta.magnitude()
-        # so avanca ate 'alcance': assim ele encosta pra atacar, mas nao sobe em cima
         if dist > self.alcance:
-            passo = min(self.speed, dist - self.alcance)   # nao ultrapassa o ponto de parada
+            passo = min(self.speed, dist - self.alcance)
             self.direction = delta.normalize()
             self.position += self.direction * passo
             self.rect.center = (int(self.position.x), int(self.position.y))
 
     def atacar(self):
-        """Dispara a animacao de ataque (se o inimigo tiver frames de ataque)."""
         if self.frames_attack:
             self.atacando = True
             self.attack_index = 0.0
 
     def animar(self):
-        # escolhe entre os frames de ataque (uma vez) e os frames normais (em loop)
         if self.atacando and self.frames_attack:
             self.attack_index += self.attack_speed
             if self.attack_index >= len(self.frames_attack):
@@ -672,7 +625,6 @@ class Enemy(pygame.sprite.Sprite):
             base = self.frames[int(self.frame_index)]
         else:
             return
-        # a arte original olha pra direita: espelha quando o player está à esquerda
         if self.virar and player.hitbox_rect.centerx < self.position.x:
             base = pygame.transform.flip(base, True, False)
         self.image = base
@@ -686,7 +638,7 @@ class Enemy(pygame.sprite.Sprite):
         return False
 
     def update(self):
-        if not self.atacando:      # fica parado enquanto ataca (nao desliza no golpe)
+        if not self.atacando:
             self.hunt_player()
         self.animar()
         if self.ataque_cooldown > 0:
@@ -694,13 +646,11 @@ class Enemy(pygame.sprite.Sprite):
 
 
 class Boss(Enemy):
-    """Boss do mapa 3: o anjo. Persegue o player flutuando e, na hora de
-    atirar, para um instante (aviso) antes de soltar o projétil."""
     def __init__(self, position, mapa):
         super().__init__(position, mapa=mapa, vida=BOSS_VIDA, dano=BOSS_DANO,
                          velocidade=BOSS_SPEED, ataque_delay=BOSS_ATAQUE,
                          moedas=BOSS_MOEDAS, frames=BOSS_FRAMES,
-                         anim_speed=BOSS_ANIM_SPEED, virar=False,   # o anjo é simétrico
+                         anim_speed=BOSS_ANIM_SPEED, virar=False,
                          alcance=BOSS_ALCANCE)
         self.ultimo_tiro = pygame.time.get_ticks()
         self.carregando = False
@@ -710,7 +660,6 @@ class Boss(Enemy):
         agora = pygame.time.get_ticks()
 
         if self.carregando:
-            # parado carregando o tiro: dá tempo do player reagir
             self.animar()
             if self.ataque_cooldown > 0:
                 self.ataque_cooldown -= 1
@@ -727,7 +676,6 @@ class Boss(Enemy):
 
 
 class EnemyBullet(pygame.sprite.Sprite):
-    """Tiro do boss: vai na direção do player."""
     def __init__(self, x, y, alvo, dano):
         super().__init__(enemy_bullet_group, all_sprites_group)
         self.image = BOSS_BULLET_SURF
@@ -748,13 +696,12 @@ class EnemyBullet(pygame.sprite.Sprite):
             self.kill()
 
 
-CHAVE_ESCALA = 2.5   # frames de 16x16 -> ~40px na tela
+CHAVE_ESCALA = 2.5
 CHAVE_ANIM_SPEED = 0.2
 CHAVE_FRAMES = carregar_sheet('KeyString.png', 1, 11, 11, CHAVE_ESCALA)
 
 
 class Chave(pygame.sprite.Sprite):
-    """Chave que o 5o inimigo dropa. Fica girando no chão até o player pegar."""
     def __init__(self, position):
         super().__init__(item_group, all_sprites_group)
         self.frame_index = 0.0
@@ -779,7 +726,6 @@ class Camera(pygame.sprite.Group):
         self.offset.x = player.rect.centerx - LARGURA // 2
         self.offset.y = player.rect.centery  - ALTURA  // 2
 
-        # trava a câmera nas bordas do mapa
         self.offset.x = max(0, min(self.offset.x, mundo.largura - LARGURA))
         self.offset.y = max(0, min(self.offset.y, mundo.altura  - ALTURA))
 
@@ -791,13 +737,11 @@ class Camera(pygame.sprite.Group):
         for sprite in all_sprites_group:
             screen.blit(sprite.image, sprite.rect.topleft - self.offset)
 
-        # objetos ficam por cima do personagem
         if mundo.obj is not None:
             desenhar_camada(screen, mundo.obj, self.offset, mundo.ts_obj)
 
 
 class GerenciadorSpawn:
-    """Cria os inimigos aos poucos, conforme o mapa ativo."""
     def __init__(self):
         self.iniciar(mundo.indice)
 
@@ -827,7 +771,6 @@ class GerenciadorSpawn:
         })
 
     def registrar_kill(self, inimigo):
-        """Conta o kill e, no 5o, dropa a chave e dá uma folga sem spawn."""
         self.kills += 1
         if not self.chave_dropada and self.kills >= KILLS_PARA_CHAVE:
             Chave(inimigo.rect.center)
@@ -837,7 +780,6 @@ class GerenciadorSpawn:
     def update(self):
         agora = pygame.time.get_ticks()
 
-        # aviso que já encheu: nasce o inimigo
         for aviso in list(self.avisos):
             if agora >= aviso['quando']:
                 aviso['criar'](aviso['pos'])
@@ -861,7 +803,6 @@ class GerenciadorSpawn:
                     TILE // 2)
                 self.ultimo = agora
         elif self.mapa == 1:
-            # depois que o boss aparece, ninguém mais nasce: fica só você e ele
             if not self.boss_criado and agora - self.ultimo >= SPAWN_MINION_INTERVALO:
                 self.agendar(
                     posicao_spawn(1),
@@ -879,7 +820,6 @@ class GerenciadorSpawn:
                 self.boss_criado = True
 
     def desenhar_avisos(self, surface, offset):
-        """Círculo de aviso: fica mais cheio conforme perto de nascer o inimigo."""
         agora = pygame.time.get_ticks()
         for aviso in self.avisos:
             raio = aviso['raio']
@@ -894,7 +834,6 @@ class GerenciadorSpawn:
 
 
 def desenhar_barra_vida(surface, x, y, largura, altura, vida, vida_max):
-    """Barra de vida: fundo vermelho + parte verde proporcional."""
     if vida < 0:
         vida = 0
     fracao = vida / vida_max
@@ -1022,7 +961,6 @@ def tela_game_over():
 
 
 def tela_vitoria():
-    """Tela de fim de jogo: aparece quando o boss final morre."""
     fonte_titulo = pygame.font.SysFont("arialblack", 96)
     fonte_msg    = pygame.font.SysFont("arial", 40, bold=True)
     fonte_botao  = pygame.font.SysFont("arial", 40, bold=False)
@@ -1082,7 +1020,6 @@ while True:
         if event.type == pygame.QUIT:
             pygame.quit()
             exit()
-        # R reinicia o jogo a qualquer momento
         if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
             reiniciar_jogo()
 
@@ -1090,8 +1027,6 @@ while True:
     all_sprites_group.update()
     spawner.update()
 
-    # bala acerta inimigo -> tira vida, e se morrer dá moeda e conta o kill.
-    # matar o BOSS não dropa chave: vai direto pra tela de vitória
     venceu = False
     for bullet in bullet_group:
         for inimigo in pygame.sprite.spritecollide(bullet, enemy_group, False):
@@ -1109,26 +1044,22 @@ while True:
         reiniciar_jogo()
         continue
 
-    # player pega a chave -> libera o portal
     for item in item_group:
         if player.hitbox_rect.colliderect(item.rect):
             player.tem_chave = True
             item.kill()
 
-    # inimigo chega no alcance do player -> ataca (toca a animacao) e tira vida.
-    # usa distancia (nao colisao de rect) porque os sprites tem muito espaco vazio.
     centro_player = pygame.math.Vector2(player.hitbox_rect.center)
     for inimigo in enemy_group:
         if inimigo.ataque_cooldown == 0:
             dist = (centro_player - pygame.math.Vector2(inimigo.rect.center)).magnitude()
             if dist <= inimigo.alcance + ATAQUE_MARGEM:
-                inimigo.atacar()                          # dispara a animacao de ataque
+                inimigo.atacar()
                 inimigo.ataque_cooldown = inimigo.ataque_delay
-                if player.dano_cooldown == 0:             # so tira vida fora da invencibilidade
+                if player.dano_cooldown == 0:
                     player.health -= inimigo.dano
                     player.dano_cooldown = ENEMY_DANO_COOLDOWN
 
-    # tiro do boss acerta o player
     for tiro in enemy_bullet_group:
         if player.hitbox_rect.colliderect(tiro.rect):
             if player.dano_cooldown == 0:
@@ -1136,7 +1067,6 @@ while True:
                 player.dano_cooldown = ENEMY_DANO_COOLDOWN
             tiro.kill()
 
-    # vida zerou -> game over
     if player.health <= 0:
         tela_game_over()
         reiniciar_jogo()
@@ -1160,20 +1090,14 @@ while True:
         aviso = fonte_hud.render("Voce precisa da chave pra usar o portal!", True, (255, 120, 120))
         screen.blit(aviso, aviso.get_rect(center=(LARGURA // 2, ALTURA - 60)))
 
-    # dica fixa no canto inferior direito
     dica = fonte_pequena.render("R reinicia o jogo", True, (220, 220, 220))
     screen.blit(dica, (LARGURA - dica.get_width() - 14, ALTURA - dica.get_height() - 10))
 
-    # barra de vida flutuando acima de cada inimigo
     for inimigo in enemy_group:
         bx = inimigo.rect.centerx - camera.offset.x - 25
         by = inimigo.rect.top     - camera.offset.y - 12
         desenhar_barra_vida(screen, bx, by, 50, 7, inimigo.health, inimigo.max_health)
 
-    # debug — descomenta pra ver as hitboxes
-    # for box in mundo.hitboxes:
-    #     pos = (box.x - camera.offset.x, box.y - camera.offset.y, box.width, box.height)
-    #     pygame.draw.rect(screen, (255, 0, 0), pos, 1)
 
     pygame.display.update()
     clock.tick(FPS)
